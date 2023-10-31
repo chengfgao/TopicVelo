@@ -146,12 +146,12 @@ def Combined_Topics_Transitions(adata, topics = None,
                                 transition_matrix_mode = 'count', 
                                 subset_save_prefix = '', save = None):
     '''
-        Construct a global transition matrix from topic transition matrix
+    Construct a global transition matrix from topic transition matrix
     Topic cells are selected. There need to cells overlapping from all the topics. 
    
     Each topic transition matrix is computed using the top topic genes using FastTopics and user-specfied parameters.
     
-        The topic transition matrices are combined using cell weights
+    The topic transition matrices are combined using cell weights
     (e.g. if a cell is only assigned to topic 1, that cell has weight 1 in topic 1.
     if a cell is assigned to topic 1 with weight 0.6 and topic 2 with weight 0.3, that cell's transition
     matrix will be 2/3*t2 + 1/3*t1 )
@@ -222,7 +222,7 @@ def Combined_Topics_Transitions(adata, topics = None,
         scv.pp.neighbors(adata_subset)
         #subset to steady-state cells
         adata_subset_ss = adata[ttc_ss_indices[x], ttg_indices]
-        #scv.pp.neighbors(adata_subset_ss)
+    
         
         scv.tl.velocity(adata_subset, vkey='velocity')
         if velocity_type == 'stochastic':
@@ -337,13 +337,13 @@ def Combined_Topics_Transitions(adata, topics = None,
 '''
 Analysis tools for Transition Matrix 
 '''  
-def stationary_distribution(T):
+def terminal_distribution(T):
+    from deeptime.markov.tools.analysis import stationary_distribution
     '''
     Args:
         adata (Anndata): 
             Anndata object.
-
-        
+            
     Returns:
         stat_dist (list of float)
         stationary distribution of cells 
@@ -365,7 +365,7 @@ def rescale_and_smooth(adata, obs_key):
     data[other_indices] = other_data
     adata.obs[obs_key] = data
 
-def mfpt(T, dest_cells):
+def mfpt_to_targets(T, dest_cells):
     '''
     Args:
         adata (Anndata): 
