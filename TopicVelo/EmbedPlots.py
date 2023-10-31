@@ -702,3 +702,155 @@ def comparision_violin_plot(adata, keys, groupby='cell_type', categories=None,
         plt.savefig(savefile, format='svg', dpi=300, transparent=True)
     else:
         plt.show()
+        
+        
+def comparision_violin_plot_v2(adata, keys, categories,
+                            groupby='cell_type',
+                            key_spacing = 1, groupby_spacing=2.75, figsize=(15,5),
+                            edgecolor = 'black', color_by = 'cell_type',
+                            fontsize=16, xlabels=None, ylabel=None, title=None,
+                            qs=[25,75], ylim=None, savefile=None):
+    '''
+    parameters
+    ---------------
+    adata: 
+        (Adata) object containing scRNAseq information
+    keys: 
+        (list of str) adata.obs that contains the data 
+    categories: 
+        (list of str) the annotations within a group to be used
+    
+    groupby: 
+        (str) the name of grouping used to divide up the values in keys
+    key_spacing: 
+        (float) spacing between violins within each key
+    groupby_spacing: 
+        (float) spacing between violins among keys (between categories)
+    
+    
+    
+    returns
+    ---------------
+    None
+    
+    '''
+    from matplotlib.pyplot import violinplot
+    
+    
+    n_keys = len(keys)
+    n_categories = len(categories)
+
+    n_violins = int(len(keys)*len(categories))
+    
+    #positions of the violins
+    ps = np.linspace(0, key_spacing*(n_categories-1), num=n_categories)
+    positions = [ps]
+    tick_ps = [np.mean(ps)]
+    for i in range(1, n_keys):
+        new_ps = ps+i*groupby_spacing
+        positions.append(new_ps)
+        tick_ps.append(np.mean(new_ps))
+    positions = np.array(positions).flatten()
+    
+    #extract data for each categories->key
+    data = []
+    medians=[]
+    qs1 = []
+    qs2 = []
+    
+    for i in range(n_keys):
+        for j in range(n_categories):
+            to_add = adata.obs[keys[i]].to_numpy()[np.where(adata.obs[groupby]==categories[j])[0]]
+            data.append(to_add)
+            medians.append(np.median(to_add))
+            qs1.append(np.percentile(to_add, qs[0]))
+            qs2.append(np.percentile(to_add, qs[1]))
+    data=np.array(data)
+    
+    #set dimension
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    violin_plot = ax.violinplot(data, positions, widths=0.85, showmeans=False, showmedians=False, showextrema=False)
+    
+    ax.vlines(positions, qs1, qs2, color='white', linestyle='-', lw=2.5, zorder=1)
+    ax.scatter(positions, medians, marker='o', color='k', zorder=2, s=15)
+    
+    facecolors = []
+    all_categories = list(adata.obs[color_by].cat.categories.to_numpy())
+    ccs = color_by+'_colors'
+    colors = np.array(adata.uns[ccs])
+    for c in categories:
+        if c in all_categories:
+            #print(colors[all_categories.index(c)])
+            facecolors.append(colors[all_categories.index(c)])
+        else:
+            facecolors.append('#000000')
+    
+    for i, pc in enumerate(violin_plot["bodies"], 0):
+        pc.set_facecolor(facecolors[int(i%n_categories)])
+        pc.set_edgecolor(edgecolor)
+    
+    #add x ticks and labels
+    ax.set_xticks(tick_ps)
+    if xlabels:
+        ax.set_xticklabels(xlabels, fontsize=fontsize)
+    else:
+        ax.set_xticklabels(keys, fontsize=fontsize)
+    #add y labels
+    ax.set_ylabel(ylabel, fontsize=fontsize)
+    ax.set_title(title, fontsize=fontsize)
+    ax.legend(categories, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
+    plt.ylim(ylim)
+    plt.tight_layout()
+    
+    
+    if savefile:
+        plt.savefig(savefile, format='svg', dpi=300, transparent=True)
+    else:
+        plt.show()
+        
+def relative_flux_plot(
+    adata, 
+    k_transition_matrices, 
+    markersize=50,
+    fontsize=20, legends=None,
+    title=None, ylim=[-1,1], figsize=(10,5), savefile=None):
+    """Plot Relative Flux Direction Correctness Score (A->B) from transition matrices
+    
+    Args:
+        adata (Anndata): 
+            Anndata object.
+        k_transition_matrices (list of str): 
+            keys to the transition matrix in adata.obs.
+        cluster_transitions (list of tuples("A", "B")): 
+            pairs of clusters has transition direction A->B
+            
+    Returns:
+        None
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    
+    cluster_transitions = adata.uns[k_transition_matrices[0]+'_rel_flux'].keys()
+    positions = np.arange(len(cluster_transitions))
+    for k_tr_mat in k_transition_matrices:          
+        ax.scatter(positions, adata.uns[k_tr_mat+'_rel_flux'].values(), marker='o', s=markersize)                    
+    xlabels = [A+'\n ↓ \n'+B for (A,B) in cluster_transitions]
+    
+    ax.set_xticks(positions)
+    ax.set_xticklabels(xlabels, fontsize=fontsize)
+ 
+    #add y labels
+    ax.set_ylabel('Relative Flux', fontsize=fontsize)
+    ax.set_title(title, fontsize=fontsize)
+    if legends:
+        ax.legend(legends, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
+    else:
+        ax.legend(k_transition_matrices, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
+    plt.ylim(ylim)
+    plt.tight_layout()
+    
+    if savefile:
+        plt.savefig(savefile, format='svg', dpi=300, transparent=True)
+    else:
+        plt.show()
