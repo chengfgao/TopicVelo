@@ -15,7 +15,9 @@ Utility tools for transition matrix
 2. Gene selection
 3. adata subset selection
 '''
-def get_cells_indices(adata, topics, topic_weights_th_percentile = None, above_or_below = 'above'):
+def get_cells_indices(adata, topics, 
+                      topic_weights_th_percentile = None, 
+                      above_or_below = 'above', topic_type = 'fastTopics'):
     '''
     'above_or_below': pick cells above the th or below the threshold
     '''
@@ -25,10 +27,10 @@ def get_cells_indices(adata, topics, topic_weights_th_percentile = None, above_o
         topic_weights_th_percentile = np.ones(len(topics))*topic_weights_th_percentile
     for i in range(len(topics)):
         if topic_weights_th_percentile is None:
-            ttc_indices.append([j for j in range(adata.n_obs) if adata.obs['fastTopics_cluster'][j] == topics[i]])
+            ttc_indices.append([j for j in range(adata.n_obs) if adata.obs[topic_type+'_cluster'][j] == topics[i]])
         else:
             #get the threshold for topic k 
-            k_str = 'fastTopics_'+str(topics[i])
+            k_str = topic_type+'_'+str(topics[i])
             th_k = np.percentile(adata.obs[k_str], topic_weights_th_percentile[i])
             if above_or_below == 'above':
                 ttc_indices.append([j for j in range(adata.n_obs) if adata.obs[k_str][j] >= th_k])
@@ -36,7 +38,6 @@ def get_cells_indices(adata, topics, topic_weights_th_percentile = None, above_o
                 ttc_indices.append([j for j in range(adata.n_obs) if adata.obs[k_str][j] < th_k])
             else:
                 print('Error: Please choose if the percentiles are for above or below')
-    
     other_cells_indices = np.array(list(set(np.arange(adata.n_obs))-set([x for xs in ttc_indices for x in xs])))
     return ttc_indices, other_cells_indices
 
@@ -91,7 +92,8 @@ def get_adata_subset(adata, topic, save_path, topic_weights_th_percentile = None
     adata_subset.var['burst_velocity_gamma'] = inferredParams['Optimzal Parameters'][:, 2]
     adata_subset.var['burst_velocity_KLdiv'] = inferredParams['KLdiv']
     velocity_graph(adata_subset, 
-                xkey = adata.uns['topicVelo_params']['embed_xkey'], ukey = adata.uns['topicVelo_params']['embed_ukey'],
+                xkey = adata.uns['topicVelo_params']['embed_xkey'], 
+                ukey = adata.uns['topicVelo_params']['embed_ukey'],
                 gene_subset = ttg)  
     return adata_subset
 
@@ -106,9 +108,6 @@ def velocity_graph(adata, vkey = 'burst_velocity',
     Velocity has been inferred. The adata file contains the kinetic parameters
     xkey, ukey: the spliced/unspliced count matrices to use for computing velocity and transition matrix
     gene_subset: the subset of genes used for computing the transition matrix
-    
-    transition_matrix_mode:
-        1. "count": use the "unprocessed" count layers
     '''  
     def velocity_vectors(U_matrix, S_matrix, gamma_vector):
         #compute u-gamma*s for every (cell,gene)
@@ -120,21 +119,20 @@ def velocity_graph(adata, vkey = 'burst_velocity',
         B_velocity_vectors = velocity_vectors(np.round(adata.layers[ukey]),
                     np.round(adata.layers[xkey]), 
                     adata.var[gamma_key])
-        #enforce the correct velocity vector
         adata.layers[vkey] = B_velocity_vectors.A
     else:
         B_velocity_vectors = velocity_vectors(adata.layers[ukey],
                     adata.layers[xkey], 
                     adata.var[gamma_key])
-        #enforce the correct velocity vector
         adata.layers[vkey] = B_velocity_vectors.A
     if transition_matrix_mode == 'count':
-        scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
+        try:
+            scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
+        except ValueError:
+            scv.pp.neighbors(adata)
+            scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
 
-'''
-Main function for TopicVelo
-Compute topic-specific transition matrices then integrate them according to topic weights. 
-'''
+
 def Combined_Topics_Transitions(adata, topics = None, 
                                 topic_weights_th_percentile = None,
                                 recompute = True,
@@ -143,9 +141,13 @@ def Combined_Topics_Transitions(adata, topics = None,
                                 velocity_type = 'burst',
                                 infer_xkey='spliced', infer_ukey='unspliced',
                                 embed_xkey = 'Ms', embed_ukey ='Mu',
-                                transition_matrix_mode = 'count', 
+                                topic_type = 'fastTopics', top_genes_key = 'top_genes', params_key = 'topicVelo_params',
+                                transition_matrix_mode = 'count', transition_matrix_name = None,
                                 subset_save_prefix = '', save = None):
     '''
+    Main function for TopicVelo
+    Compute topic-specific transition matrices then integrate them according to topic weights. 
+
     Construct a global transition matrix from topic transition matrix
     Topic cells are selected. There need to cells overlapping from all the topics. 
    
@@ -170,10 +172,9 @@ def Combined_Topics_Transitions(adata, topics = None,
     #extract the number of cells
     n = adata.n_obs
     #extract the number of topics:
-    K = len(adata.uns['top_genes'])
-    use_all_topics = False
+    K = len(adata.uns[top_genes_key])
     #get the top genes
-    top_genes = adata.uns['top_genes']
+    top_genes = adata.uns[top_genes_key]
     if QC_on_topic_genes:
         try:
             reasonable_top_genes = adata.uns['reasonable_top_genes']
@@ -181,6 +182,7 @@ def Combined_Topics_Transitions(adata, topics = None,
             print('Need to perform quality control on topic genes')
     
     #use all topics if topic is none
+    use_all_topics = False
     if topics is None:
         use_all_topics = True
         topics = list(range(K))
@@ -194,17 +196,21 @@ def Combined_Topics_Transitions(adata, topics = None,
     topicVelo_params['infer_ukey'] = infer_ukey
     topicVelo_params['embed_xkey'] = embed_xkey
     topicVelo_params['embed_ukey'] = embed_ukey 
-    adata.uns['topicVelo_params'] = topicVelo_params
+    adata.uns[params_key] = topicVelo_params
     
     #for computing the confidence (coherence within neighborhood of velocity
     topics_cells_velocity_confidence = np.zeros((len(topics),n))
     
     #get topic cells
-    ttc_indices, other_cells_indices = get_cells_indices(adata, topics, topic_weights_th_percentile = topic_weights_th_percentile)
+    ttc_indices, other_cells_indices = get_cells_indices(adata, topics, 
+                                                         topic_weights_th_percentile = topic_weights_th_percentile,
+                                                         topic_type = topic_type)
     if len(other_cells_indices) > 0:
         adata_other_cells = adata[other_cells_indices,:] 
     #get topic steady state cells
-    ttc_ss_indices, transitient_cells_indices = get_cells_indices(adata, topics, topic_weights_th_percentile = steady_state_perc)
+    ttc_ss_indices, transitient_cells_indices = get_cells_indices(adata, topics, 
+                                                                  topic_weights_th_percentile = steady_state_perc, 
+                                                                  topic_type = topic_type)
     
     #compute with scVelo
     scv.tl.velocity(adata, vkey='velocity')
@@ -222,8 +228,6 @@ def Combined_Topics_Transitions(adata, topics = None,
         scv.pp.neighbors(adata_subset)
         #subset to steady-state cells
         adata_subset_ss = adata[ttc_ss_indices[x], ttg_indices]
-    
-        
         scv.tl.velocity(adata_subset, vkey='velocity')
         if velocity_type == 'stochastic':
             #compute velocity, velocity_graph and the transition matrix
@@ -275,7 +279,7 @@ def Combined_Topics_Transitions(adata, topics = None,
         for x in range(len(topics)):
             k = topics[x]
             cells_k_indices =  ttc_indices[x]
-            cells_weights_k = adata.obs['fastTopics_'+str(k)]
+            cells_weights_k = adata.obs[topic_type+'_'+str(k)]
             #iterate the cells within the topics
             for i in range(len(cells_k_indices)):
                 #get the index (in the global adata) of the topic cell
@@ -330,51 +334,11 @@ def Combined_Topics_Transitions(adata, topics = None,
     else:
         combined_TM = load_npz(TM_save_path)
         combined_TM = csr_matrix(combined_TM)
-    adata.obsp['topicVelo_T'] = combined_TM
+    if transition_matrix_name:
+        adata.obsp[transition_matrix_name+'_T'] = combined_TM
+    elif velocity_type == 'burst':
+        adata.obsp['topicVelo_T'] = combined_TM
+    elif velocity_type == 'stochastic':
+        adata.obsp['topic_modeling+scvelo_stochastic_T'] = combined_TM
+
     return combined_TM, ttc_indices
-    
-
-'''
-Analysis tools for Transition Matrix 
-'''  
-def terminal_distribution(T):
-    from deeptime.markov.tools.analysis import stationary_distribution
-    '''
-    Args:
-        adata (Anndata): 
-            Anndata object.
-            
-    Returns:
-        stat_dist (list of float)
-        stationary distribution of cells 
-    '''
-    return stationary_distribution(T, check_inputs=False)
-
-def rescale_and_smooth(adata, obs_key):
-    #rescale 
-    data = adata.obs[obs_key].to_numpy()
-    #separate into zeros and nonzeros
-    other_indices = np.nonzero(data)
-    other_data = data[other_indices]
-    smoothed_data = np.zeros(adata.n_obs)
-    for i in range(adata.n_obs):
-        smoothed_data[i] = np.mean(adata.obs[obs_key][adata.uns['neighbors']['indices'][i]])
-    other_data = smoothed_data[other_indices]
-    #rescaling
-    other_data = other_data/np.median(other_data)
-    data[other_indices] = other_data
-    adata.obs[obs_key] = data
-
-def mfpt_to_targets(T, dest_cells):
-    '''
-    Args:
-        adata (Anndata): 
-            Anndata object.
-        dest_cells (array):
-            an array specifying the indices of target cells.
-
-
-    Returns:
-        mean first passage time (list of float)
-    '''
-    return mfpt(T, dest_cells, origin=None, tau=1, mu=None)
