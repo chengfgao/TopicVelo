@@ -180,6 +180,7 @@ def Combined_Topics_Transitions(adata, topics = None,
             reasonable_top_genes = adata.uns['reasonable_top_genes']
         except:
             print('Need to perform quality control on topic genes')
+            return 
     
     #use all topics if topic is none
     use_all_topics = False
@@ -228,11 +229,23 @@ def Combined_Topics_Transitions(adata, topics = None,
         scv.pp.neighbors(adata_subset)
         #subset to steady-state cells
         adata_subset_ss = adata[ttc_ss_indices[x], ttg_indices]
+        topic_cell_vel_confidence =  np.zeros(n)
         scv.tl.velocity(adata_subset, vkey='velocity')
+        
+        if QC_on_topic_genes:
+            reasonable_genes = reasonable_top_genes[k]
+        else:
+            reasonable_genes = ttg_k
+                
         if velocity_type == 'stochastic':
             #compute velocity, velocity_graph and the transition matrix
-            scv.tl.velocity_graph(adata_subset, vkey='velocity')
+            scv.tl.velocity_graph(adata_subset, vkey='velocity', gene_subset=reasonable_genes)
+            scv.tl.velocity_confidence(adata_subset, vkey='velocity')
+            topic_cell_vel_confidence =  np.zeros(n)
+            topic_cell_vel_confidence[ttc_indices[x]] = adata_subset.obs['velocity_confidence']
+            topics_cells_velocity_confidence[x] = topic_cell_vel_confidence
             TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='velocity'))
+            
         elif velocity_type == 'burst':
             #burst topic genes and cells. Do not recompute if no need
             save_infer = subset_save_prefix+'T'+str(k)+'_'+infer_xkey+'_'+embed_xkey
@@ -260,7 +273,8 @@ def Combined_Topics_Transitions(adata, topics = None,
             topic_cell_burst_vel_confidence =  np.zeros(n)
             topic_cell_burst_vel_confidence[ttc_indices[x]] = adata_subset.obs['burst_velocity_confidence']
             topics_cells_velocity_confidence[x] = topic_cell_burst_vel_confidence
-
+                
+        
             #add topic gene kl divergence (from simulated with MLE to experimental)
             topic_gene_kl_str = 'Topic'+str(k)+'_KLdiv'
             topic_gene_kl = np.zeros(adata.n_vars)
@@ -268,7 +282,7 @@ def Combined_Topics_Transitions(adata, topics = None,
             adata.var[topic_gene_kl_str] = topic_gene_kl
             #add topic-specific transition 
             TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity'))
-    
+
     TM_save_path = subset_save_prefix + 'TransitionMatrix.npz'
     
     #Use topic-specific matrices and topic weights to construct integrated transition matrix
@@ -329,8 +343,16 @@ def Combined_Topics_Transitions(adata, topics = None,
         combined_TM = csr_matrix(combined_TM)
         save_npz(TM_save_path, combined_TM)
         #compute aggregate velocity confidence with cellweights 
-        #adata.obs['topicVelo_velocity_confidence'] = np.diag(np.matmul(cells_weights_for_tm, topics_cells_velocity_confidence))
-        adata.obs['topicVelo_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
+        if velocity_type == 'burst':
+            adata.obs['topicVelo_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
+                                                                                           topics_cells_velocity_confidence))
+            adata.obs['topicVelo_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
+            adata.obsm['topicVelo_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
+        elif velocity_type == 'stochastic':
+            adata.obs['scVelo+TM_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
+                                                                                           topics_cells_velocity_confidence))
+            adata.obs['scVelo+TM_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
+            adata.obsm['scVelo+TM_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
     else:
         combined_TM = load_npz(TM_save_path)
         combined_TM = csr_matrix(combined_TM)

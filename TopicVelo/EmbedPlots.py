@@ -13,6 +13,8 @@ from TM_Utils import get_cells_indices
 
 
 plt.rcParams["font.family"] = "Arial"
+mpl.rcParams['pdf.fonttype'] = 42
+mpl.rcParams['ps.fonttype'] = 42
  
 '''
 Plot subroutine for generic scatter plot 
@@ -551,7 +553,7 @@ def comparision_stacked_bar_plot(adata, keys, labels=None, groupby='cell_type', 
                         fontsize=16, title=None,
                         figsize=(15,5), savefile=None):
     '''
-    make a stacked bar plot for sum of individual categories in keys->categories.
+    make a stacked bar plot for sum of individual categories in keys->categories (i.e. adata.obs[keys].cat.categories).
     
     '''
     if labels is None:
@@ -581,7 +583,6 @@ def comparision_stacked_bar_plot(adata, keys, labels=None, groupby='cell_type', 
         category_names : list of str
             The category labels.
        '''
-
         fig, ax = plt.subplots(figsize=figsize)
         ax.invert_yaxis()
         ax.set_xlim(0, np.sum(data, axis=1).max())
@@ -739,7 +740,6 @@ def comparision_violin_plot_v2(adata, keys, categories,
     
     n_keys = len(keys)
     n_categories = len(categories)
-
     n_violins = int(len(keys)*len(categories))
     
     #positions of the violins

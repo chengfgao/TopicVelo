@@ -44,7 +44,7 @@ def mfpt_to_targets(
         target_cells (list of int):
             indices of cells that are targets
         k_mfpt(str): 
-            key to the transition matrix in adata.obsp
+            key to save the mfpt in adata.obsp
         rescale_and_smooth (bool):
             rescale the results by the mean in nonzero data and 
     
@@ -71,42 +71,6 @@ def mfpt_to_targets(
     if rescale_and_smooth:
         rescale_and_smooth(adata, k_mfpt)    
     return adata.obs[k_mfpt]
-
-# def mfpt_to_multiple_targets(
-#     adata,
-#     k_transition_matrix,
-#     lists_target_cells,
-#     k_mfpt = None,
-#     rescale = True):
-#     """
-#     Compute mfpt to multiple targets then rescale the results
-#     rescale everything together
-    
-#     Args:
-#         adata (Anndata): 
-#             Anndata object.
-#         k_transition_matrix (str): 
-#             key to the transition matrix in adata.obsp 
-#         lists_target_cells (list of lists of int):
-#             list of lists of indices of cells that are targets
-#         k_mfpt(str): 
-#             key to the transition matrix in adata.obsp
-#         rescale (bool):
-#             rescale the results by the mean in nonzero data and 
-    
-#     Returns:
-#         mfpt (2d array of float): 
-#             mean-first passage time to targets
-#     """
-#     n = len(lists_target_cells)
-#     res = np.zeros((adata.n_obs, n))
-#     for i in range(n):
-#         res[i] = mfpt(adata.obsp[k_transition_matrix+'_T'], lists_target_cells[i])
-#     res = res / (np.sum(res)/(np.count_nonzero(res)))
-#     if not k_mfpt:
-#         k_mfpt = k_transition_matrix+'_mfpt'
-#     adata.obsm[k_mfpt] = res
-#     return adata.obsm[k_mfpt]
     
 
 def relative_flux_correctness(
@@ -149,7 +113,61 @@ def relative_flux_correctness(
         flux[(A, B)] = A_to_B
         flux[(B, A)] = B_to_A
         rel_flux[(A,B)] = (A_to_B-B_to_A)/(A_to_B+B_to_A)
+    adata.uns[k_transition_matrix+'_flux'] = flux
+    adata.uns[k_transition_matrix+'_rel_flux']=rel_flux
     return rel_flux, flux
+
+#helper functions for the shortest_transition_paths
+#helper functions for the shortest_transition_paths
+from scipy.sparse.csgraph import dijkstra
+from scipy.sparse import csr_matrix
+def shortest_paths(adata, k_transition_matrix):
+    cost_matrix = -np.log(adata.obsp[k_transition_matrix].A)
+    cost_matrix [cost_matrix  == np.inf] = 0
+    cost_matrix=csr_matrix(cost_matrix)
+    return dijkstra(cost_matrix, return_predecessors=True)
+
+def reconstruct_paths(predecessors, paths_costs, starts, ends):
+    def reconstruct_path(predecessors, paths_costs, start, end):
+        path = [end]
+        cur = end
+        cost = 0
+        while cur != start:
+            cur = predecessors[start, cur]
+            cost+= paths_costs[start, cur]
+            path.append(cur)
+        return path, cost
+    paths = []
+    costs = []
+    for s in starts:
+        for e in ends:
+            p, c = reconstruct_path(predecessors, paths_costs, s, e)
+            paths.append(p)
+            costs.append(c)
+    return paths, costs
+
+
+def shortest_transition_paths(adata, k_transition_matrix, starts, ends, recompute=False):
+    '''
+    Return the shortest paths from every point in start to every point in end
+    Args:
+        adata: 
+        k_transition: key to the transiton matrix in adata.obsp
+        starts: indices of starting cells
+        end: indices of terminal cells
+        recompute: to recompute the shortest paths between all cells via dijkstra
+    Return
+        Paths: list of list of paths
+        Costs: list of list of costs of paths
+    '''
+    path_key = k_transition_matrix+'_shortest_paths'
+    cost_key = k_transition_matrix+'_shortest_paths_cost'
+    if path_key not in adata.uns:
+        path_cost, shortest_path_predecessors = shortest_paths(adata, k_transition_matrix+'_T')
+        adata.uns[path_key] = shortest_path_predecessors
+        adata.obsp[cost_key] = path_cost
+    return reconstruct_paths(adata.uns[path_key], adata.obsp[cost_key], starts, ends)
+
 
 def permutation_test_helper(test_dist, null_dist, n_resamples = 9999, alternative ='two-sided'):
     def run_permutation_test(pooled,test_size,null_size):
@@ -205,3 +223,5 @@ def permutation_test(
     test_dist = adata.obs[k_compare_on][np.where(adata.obs[k_cluster]==k_test)[0]]
     null_dist = adata.obs[k_compare_on][np.where(adata.obs[k_cluster]==k_null)[0]]
     return permutation_test_helper(test_dist, null_dist, n_resamples=n_resamples, alternative=alternative)
+
+

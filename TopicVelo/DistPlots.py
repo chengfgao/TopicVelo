@@ -8,6 +8,77 @@ from TranscriptionSimulation import GeometricBurstTranscription, JointDistributi
 from matplotlib import pyplot
 from InferenceTools import KLdivergence
 plt.rcParams["font.family"] = "Arial"
+# matplotlib.rcParams['pdf.fonttype'] = 42
+# matplotlib.rcParams['ps.fonttype'] = 42
+
+def proportion_pie_chart(adata, xkey='spliced', ukey='unspliced',
+                    fontsize=20,title=None, save=False):
+    '''
+    Plot the proportion of spliced vs unspliced in a pie chart
+    
+    Args:
+        adata (Anndata): 
+            Anndata object.
+        xkey: 
+            key to the spliced count matrix in adata.layers
+        ukey: 
+            key to the unspliced count matrix in adata.layers
+        fontsize:
+            
+        title:
+        
+        save: (str if need to save)
+            
+    Returns:
+        None
+    '''
+    
+    S = np.sum(np.round(adata.layers[xkey].toarray().flatten()))
+    U = np.sum(np.round(adata.layers[ukey].toarray().flatten()))
+    plt.pie([S,U], labels=['spliced', 'unspliced'], autopct='%1.1f%%', textprops={'fontsize': fontsize})
+    plt.title(title, size=fontsize)
+    plt.tight_layout()
+    if save:
+        plt.savefig(save, format='svg', dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
+    plt.clf()
+
+        
+def proportion_bar_chart(adata, raw_xkey='raw_spliced', raw_ukey='raw_unspliced',
+                         xkey='spliced', ukey='unspliced',
+                         fontsize=20,title=None, figsize=(15,3), save=False):
+    S_raw = np.sum(adata.layers[raw_xkey].toarray().flatten())
+    U_raw = np.sum(adata.layers[raw_ukey].toarray().flatten())
+    raw_total = S_raw+U_raw
+    S = np.sum(np.round(adata.layers[xkey].toarray().flatten()))
+    U = np.sum(np.round(adata.layers[ukey].toarray().flatten()))
+    SN_total = S+U
+    S_prop = [S_raw/raw_total, S/SN_total]
+    U_prop = [U_raw/raw_total, U/SN_total]
+    counts = ['Raw', 'Size Normalized']
+    
+    plt.figure(figsize=figsize)
+    b1 = plt.barh(counts, S_prop, left=U_prop)
+    b2 = plt.barh(counts, U_prop)
+    
+    plt.yticks(fontsize=fontsize)
+    plt.legend([b1, b2], ["Spliced", "Unspliced"], fontsize=fontsize, loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.title(title, size=fontsize)
+    plt.tight_layout()
+    plt.xlim([0,1])
+    
+    
+    plt.text(U_prop[0]/2, 0, str(U_prop[0]*100)[0:4],color='white', fontsize=fontsize, ha='center', va='center')
+    plt.text(U_prop[1]/2, 1, str(U_prop[1]*100)[0:4],color='white', fontsize=fontsize, ha='center', va='center')
+    plt.text(S_prop[0]/2+U_prop[0], 0, str(S_prop[0]*100)[0:4],color='white', fontsize=fontsize, ha='center', va='center')
+    plt.text(S_prop[1]/2+U_prop[1], 1, str(S_prop[1]*100)[0:4],color='white', fontsize=fontsize, ha='center', va='center')
+            
+    if save:
+        plt.savefig(save, format='svg', dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
+    plt.clf()
 
 '''
 Joint distribution from experiments for all cells
@@ -242,8 +313,6 @@ def Experimental_JD_Cluster(adata, gene_name, color_by = 'lda_cluster',
     savestring = gene_name + '_by_'+ color_by+'.png'
     plt.savefig(savestring, edgecolor='black', dpi=300, bbox_inches = "tight", facecolor='white')
     
-    
-    
 def ExpJD_Cluster_Focus_HeatMap(adata, gene_name, clusters= 'lda_cluster', focus = '0', gamma = None, 
                             S_layer = 'raw_spliced', U_layer = 'raw_unspliced', cmap = 'YlOrRd',
                             x_cutoff = None, y_cutoff = None, height =10, 
@@ -361,3 +430,50 @@ def ExpJD_Cluster_Focus_HeatMap(adata, gene_name, clusters= 'lda_cluster', focus
     fig.tight_layout(pad=1)
     savestring = gene_name+'_'+focus + '_HeatMap_by_'+ clusters+'.png'
     plt.savefig(savestring, edgecolor='black', dpi=300, bbox_inches = "tight", facecolor='white')
+    
+    
+def relative_flux_plot(
+    adata, 
+    k_transition_matrices, 
+    markersize=50,
+    fontsize=20, legends=None,
+    title=None, ylim=[-1,1], figsize=(10,5), savefile=None):
+    """Plot Relative Flux Direction Correctness Score (A->B) from transition matrices
+    
+    Args:
+        adata (Anndata): 
+            Anndata object.
+        k_transition_matrices (list of str): 
+            keys to the transition matrix in adata.obs.
+        cluster_transitions (list of tuples("A", "B")): 
+            pairs of clusters has transition direction A->B
+            
+    Returns:
+        None
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    
+    cluster_transitions = adata.uns[k_transition_matrices[0]+'_rel_flux'].keys()
+    positions = np.arange(len(cluster_transitions))
+    for k_tr_mat in k_transition_matrices:          
+        ax.scatter(positions, adata.uns[k_tr_mat+'_rel_flux'].values(), marker='o', s=markersize)                    
+    xlabels = [A+'\n ↓ \n'+B for (A,B) in cluster_transitions]
+    
+    ax.set_xticks(positions)
+    ax.set_xticklabels(xlabels, fontsize=fontsize)
+ 
+    #add y labels
+    ax.set_ylabel('Relative Flux', fontsize=fontsize)
+    ax.set_title(title, fontsize=fontsize)
+    if legends:
+        ax.legend(legends, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
+    else:
+        ax.legend(k_transition_matrices, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
+    plt.ylim(ylim)
+    plt.tight_layout()
+    
+    if savefile:
+        plt.savefig(savefile, format='svg', dpi=300, transparent=True)
+    else:
+        plt.show()
