@@ -1,4 +1,4 @@
-name: topic-velo
+name: topic-velo-source
 channels:
   - bioconda
   - conda-forge
