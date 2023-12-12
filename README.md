@@ -6,7 +6,8 @@ For more information please see our preprint https://www.biorxiv.org/content/10.
 
 You can download the package using <code> pip install topicvelo </code>
 
-If there are conflicts, you may wish to use a environment with topicvelo installed. Download the environment.yml file and run <br>
-<code> conda env create -f environment.yml <code>
+If there are conflicts, you may wish to use a environment with topicvelo installed. Download the environment.yml file and run 
+<br>
+<code>conda env create -f environment.yml<code>
 
 We include a tutorial using the scNT-seq data in the tutorial folder
