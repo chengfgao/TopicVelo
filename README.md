@@ -10,4 +10,6 @@ If there are conflicts, you may wish to use a environment with topicvelo install
 <br>
 <code>conda env create -f environment.yml </code>
 
-We include a tutorial using the scNT-seq data in the tutorial folder
+The default name of the conda environment is topicvelo which can be activated with <code>conda activate topicvelo </code>
+
+We include a detailed tutorial using the scNT-seq data in the tutorial folder that goes over topic modeling, velocity inference, and various qualitative and quantitaive measures one can use to assess the results. 
