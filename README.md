@@ -12,4 +12,8 @@ If there are conflicts, you may wish to use a environment with topicvelo install
 
 The default name of the conda environment is topicvelo which can be activated with <code>conda activate topicvelo </code>
 
+If you are using a Mac with a M1 chip, python 3.7 (the default version from the environment) may be difficult to install. For this situation, please create an environment with python 3.8
+<code>conda env create -n envname python=3.8 </code>
+A few plotting function may not function properly but everything else runs. The plotting issues will be addressed in a future update. 
+
 We include a detailed tutorial using the scNT-seq data in the tutorial folder that goes over topic modeling, velocity inference, and various qualitative and quantitaive measures one can use to assess the results. 
