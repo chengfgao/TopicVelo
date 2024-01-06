@@ -2,7 +2,7 @@ TopicVelo is a novel approach for RNA velocity inference in general systems, inc
 
 For more information please see our preprint https://www.biorxiv.org/content/10.1101/2023.06.13.544828v1.full
 
-![TopicVelo_Overview](/docs/Overview.png)
+![TopicVelo_Overview](/Overview.png)
 
 You can download the package using <code> pip install topicvelo </code>
 
