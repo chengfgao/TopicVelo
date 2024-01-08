@@ -168,6 +168,39 @@ def shortest_transition_paths(adata, k_transition_matrix, starts, ends, recomput
         adata.obsp[cost_key] = path_cost
     return reconstruct_paths(adata.uns[path_key], adata.obsp[cost_key], starts, ends)
 
+def neighborhood_compositions(adata, arr1, arr2, proportion = True):
+    '''
+    For each element i in arr1+arry2, find how many arr1 are in the neighborhood of i (si1)
+    and find how many arr2 are in the neighborhood of j (si2)
+    
+    proportion: whether to normalize the composition by the cardinality of arrays (the arrays are sets) 
+    
+    return the composition as 
+    comp1 arr1 arr2
+    comp2 arr2 arr1
+    '''
+    def tally(arr):
+        comp = np.zeros((len(arr),2))
+        for ind, i in enumerate(arr):
+            neigh_i = adata.uns['neighbors']['indices'][i]
+            si1 = 0
+            for j in arr1:
+                if j in neigh_i:
+                    si1+=1
+            si2 = 0
+            for j in arr2:
+                if j in neigh_i:
+                    si2+=1
+            if proportion:
+                comp[ind,0] = si1/len(arr1)
+                comp[ind,1] = si2/len(arr2)
+            else:
+                comp[ind,0] = si1
+                comp[ind,1] = si2
+        return comp
+    comp1 = tally(arr1)
+    comp2 = tally(arr2)[:,[1,0]]
+    return comp1, comp2
 
 def permutation_test_helper(test_dist, null_dist, n_resamples = 9999, alternative ='two-sided'):
     def run_permutation_test(pooled,test_size,null_size):
