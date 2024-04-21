@@ -221,6 +221,50 @@ def Combined_Topics_Transitions(adata, topics = None,
     #compute transition matrix for each topic
     for x in range(len(topics)):
         k = topics[x]
+
+        # plot topic threshold
+
+        # get indices not in topic so we can plot them first
+        not_ttc_indices = np.setdiff1d(list(range(adata.n_obs)),ttc_indices[x])
+
+        # plot cells not in topic in light gray (should we change color to
+        # optional argument in the future? Maybe do the same with point size?)
+        plt.plot(adata.obsm['X_umap'][:,0][not_ttc_indices],adata.obsm['X_umap'][:,1][not_ttc_indices],
+                 marker='o', linestyle='',ms=0.5,color='#d9d9d9')
+
+        # plot cells in topic in dark red
+        plt.plot(adata.obsm['X_umap'][:,0][ttc_indices[x]],adata.obsm['X_umap'][:,1][ttc_indices[x]],
+                 marker='o', linestyle='',ms=0.5,color='#ba2100')
+        
+        plt.gca().set_aspect('equal')
+        
+        plt.title("Topic " + str(k) + " thresholding (thresh=" + str(topic_weights_th_percentile[x]) + "%)")
+
+        plt.axis('off')
+        
+        plt.savefig(subset_save_prefix+"topic" + str(k) + "_thresh.png",format='png', dpi=300)
+        plt.clf()
+
+        # plot topic steady state threshold (to-do: make plotting function for topic thresholds
+        # so that the code doesn't have to be repeated here)
+        not_ttc_ss_indices = np.setdiff1d(list(range(adata.n_obs)),ttc_ss_indices[x])
+
+        # plot cells not in topic steady state in light gray
+        plt.plot(adata.obsm['X_umap'][:,0][not_ttc_ss_indices],adata.obsm['X_umap'][:,1][not_ttc_ss_indices],
+                 marker='o',linestyle='',ms=0.5,color='#d9d9d9')
+
+        # plot cells in topic steady state in dark red
+        plt.plot(adata.obsm['X_umap'][:,0][ttc_ss_indices[x]],adata.obsm['X_umap'][:,1][ttc_ss_indices[x]],
+                 marker='o', linestyle='',ms=0.5,color='#ba2100')
+        
+        plt.gca().set_aspect('equal')
+
+        plt.title("Topic " + str(k) + " steady state thresholding (thresh=" + str(steady_state_perc[x]) + "%)")
+
+        plt.axis('off')
+        plt.savefig(subset_save_prefix+"topic" + str(k) + "_ss_thresh.png",format='png', dpi=300)
+        plt.clf()
+        
         #get the top genes for topic k
         ttg_k = top_genes[k]
         ttg_indices = [adata.var.index.get_loc(gene_name) for gene_name in ttg_k]
