@@ -214,8 +214,9 @@ def Combined_Topics_Transitions(adata, topics = None,
                                                                   topic_type = topic_type)
     
     #compute with scVelo
+    print("")
     print("Calculating global scVelo velocity (probably legacy; may remove later)")
-    scv.tl.velocity(adata, vkey='velocity')
+    scv.tl.velocity(adata, vkey='scVelo_velocity')
     
     #store the transition matrices from topics
     TMs = []
