@@ -349,6 +349,12 @@ def Combined_Topics_Transitions(adata, topics = None,
             #add topic-specific transition 
             TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity'))
 
+            # save topic-specific transition if specified
+            if save_topic_TMs:
+                TM_save_path = subset_save_prefix + 'TransitionMatrix_T' + str(k) + '.npz'
+                save_npz(TM_save_path,scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity'))
+
+
     TM_save_path = subset_save_prefix + 'TransitionMatrix.npz'
 
     print("")
