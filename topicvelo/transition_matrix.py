@@ -133,6 +133,7 @@ def velocity_graph(adata, vkey = 'burst_velocity',
             scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
 
 
+    
 def Combined_Topics_Transitions(adata, topics = None, 
                                 topic_weights_th_percentile = None,
                                 recompute = True,
@@ -143,7 +144,9 @@ def Combined_Topics_Transitions(adata, topics = None,
                                 embed_xkey = 'Ms', embed_ukey ='Mu',
                                 topic_type = 'fastTopics', top_genes_key = 'top_genes', params_key = 'topicVelo_params',
                                 transition_matrix_mode = 'count', transition_matrix_name = None,
-                                subset_save_prefix = '', save = None):
+                                subset_save_prefix = '', save = None,
+                                TM_integration_style = 'memory_intensive',
+                                save_topic_TMs=True):
     '''
     Main function for TopicVelo
     Compute topic-specific transition matrices then integrate them according to topic weights. 
@@ -166,7 +169,18 @@ def Combined_Topics_Transitions(adata, topics = None,
         default: None, all of the topics will be used
         otherwise, must be a list. A list of one topic is permitted. 
     
-    topic_weights_th_percentile: if a list, must be the same dimensions as topics specified (to be implemented. Take a scalar for now)
+    topic_weights_th_percentile: if a list, must be the same dimensions as topics specified
+
+    TM_integration_style: one of "memory_intensive" or "runtime_intensive".
+        If "memory_intensive", program will use more RAM but run significantly
+        faster; if "runtime_intensive", program will use less RAM but run much
+        more slowly. This will be further improved in a future update.
+        memory_intensive is recommended for larger datasets because the memory
+        allocation for runtime_intenstive can take quite a while on certain machines.
+
+    save_topic_TMs: if True, topic-specific transition matrices will be
+        saved using subset_save_prefix (which can specify a directory).
+        These can be used for visualizing topic-specific streamlines.
             
     '''
     #extract the number of cells
@@ -181,7 +195,7 @@ def Combined_Topics_Transitions(adata, topics = None,
         except:
             print('Need to perform quality control on topic genes')
             return 
-    
+
     #use all topics if topic is none
     use_all_topics = False
     if topics is None:
@@ -198,7 +212,10 @@ def Combined_Topics_Transitions(adata, topics = None,
     topicVelo_params['embed_xkey'] = embed_xkey
     topicVelo_params['embed_ukey'] = embed_ukey 
     adata.uns[params_key] = topicVelo_params
-    
+
+    # error catching for TM_integration_style
+    assert TM_integration_style in {"memory_intensive","runtime_intensive"}, "TM_integration_style argument must be one of \"memory_intensive\" or \"runtime_intensive\""
+        
     #for computing the confidence (coherence within neighborhood of velocity
     topics_cells_velocity_confidence = np.zeros((len(topics),n))
     
@@ -215,8 +232,8 @@ def Combined_Topics_Transitions(adata, topics = None,
     
     #compute with scVelo
     print("")
-    print("Calculating global scVelo velocity (probably legacy; may remove later)")
-    scv.tl.velocity(adata, vkey='scVelo_velocity')
+    print("Calculating global scVelo velocity (required for scVelo-style streamline plots, though not directly used)")
+    scv.tl.velocity(adata, vkey='velocity')
     
     #store the transition matrices from topics
     TMs = []
@@ -335,7 +352,7 @@ def Combined_Topics_Transitions(adata, topics = None,
     TM_save_path = subset_save_prefix + 'TransitionMatrix.npz'
 
     print("")
-    print("Constructing integrated transition matrix")
+    print("Constructing integrated transition matrix using " + TM_integration_style + " style.")
     
     #Use topic-specific matrices and topic weights to construct integrated transition matrix
     if not exists(TM_save_path) or recompute_matrix:
@@ -358,7 +375,22 @@ def Combined_Topics_Transitions(adata, topics = None,
                 cells_weights_for_tm[i] = cells_weights_for_tm[i]/weight_sum
 
         #construct the combined transition matrix
-        combined_TM = csr_matrix((n,n), dtype=np.float32)
+
+        # If runtime_intensive, construct TM as a sparse matrix of zeros
+        # and write to it
+        # If memory_intensive, construct TM as a dense matrix (very big!)
+        # and write to it
+        #
+        # The proper way to implement this is using vectorized
+        # matrix multiplication on a sparse array of which the
+        # non-zero elements are specified in advance. This will be
+        # implemented in a future update.
+        
+        if TM_integration_style == "runtime_intensive":
+            combined_TM = csr_matrix((n,n), dtype=np.float32)
+        else:
+            combined_TM = csr_matrix((n,n), dtype=np.float32).todense()
+            
         for x in range(len(topics)):
 
             #track number of topics
@@ -378,7 +410,11 @@ def Combined_Topics_Transitions(adata, topics = None,
                     TM_kij = TM_k[i, temp_js[l]]
                     TM_ki[cells_k_indices[temp_js[l]]] = TM_kij
                 #add this to the combined transition matrix weighted by cell weights
-                combined_TM[cell_ki_ind] = combined_TM[cell_ki_ind]+ TM_ki * cells_weights_for_tm[cell_ki_ind, x]  
+                combined_TM[cell_ki_ind] = combined_TM[cell_ki_ind]+ TM_ki * cells_weights_for_tm[cell_ki_ind, x]
+
+        if TM_integration_style == "memory_intensive":
+            combined_TM = csr_matrix(combined_TM)
+            
         #clean up the transition matrix
         #row normalize to 1
         combined_TM = csr_matrix(combined_TM / combined_TM.sum(axis=1) )
