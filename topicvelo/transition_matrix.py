@@ -146,7 +146,8 @@ def Combined_Topics_Transitions(adata, topics = None,
                                 transition_matrix_mode = 'count', transition_matrix_name = None,
                                 subset_save_prefix = '', save = None,
                                 TM_integration_style = 'memory_intensive',
-                                save_topic_TMs=True):
+                                save_topic_TMs=True,
+                                plotting_basis='umap'):
     '''
     Main function for TopicVelo
     Compute topic-specific transition matrices then integrate them according to topic weights. 
@@ -251,16 +252,18 @@ def Combined_Topics_Transitions(adata, topics = None,
 
         # plot cells not in topic in light gray (should we change color to
         # optional argument in the future? Maybe do the same with point size?)
-        plt.plot(adata.obsm['X_umap'][:,0][not_ttc_indices],adata.obsm['X_umap'][:,1][not_ttc_indices],
+        plt.plot(adata.obsm['X_' + plotting_basis][:,0][not_ttc_indices],adata.obsm['X_' + plotting_basis][:,1][not_ttc_indices],
                  marker='o', linestyle='',ms=0.5,color='#d9d9d9')
 
         # plot cells in topic in dark red
-        plt.plot(adata.obsm['X_umap'][:,0][ttc_indices[x]],adata.obsm['X_umap'][:,1][ttc_indices[x]],
+        plt.plot(adata.obsm['X_' + plotting_basis][:,0][ttc_indices[x]],adata.obsm['X_' + plotting_basis][:,1][ttc_indices[x]],
                  marker='o', linestyle='',ms=0.5,color='#ba2100')
         
-        plt.gca().set_aspect('equal')
+        #plt.gca().set_aspect('equal')
+
+        pctile = topic_weights_th_percentile[x] if isinstance(topic_weights_th_percentile, list) else topic_weights_th_percentile
         
-        plt.title("Topic " + str(k) + " thresholding (thresh=" + str(topic_weights_th_percentile[x]) + "%)")
+        plt.title("Topic " + str(k) + " thresholding (thresh=" + str(pctile) + "%)")
 
         plt.axis('off')
         
@@ -272,16 +275,18 @@ def Combined_Topics_Transitions(adata, topics = None,
         not_ttc_ss_indices = np.setdiff1d(list(range(adata.n_obs)),ttc_ss_indices[x])
 
         # plot cells not in topic steady state in light gray
-        plt.plot(adata.obsm['X_umap'][:,0][not_ttc_ss_indices],adata.obsm['X_umap'][:,1][not_ttc_ss_indices],
+        plt.plot(adata.obsm['X_' + plotting_basis][:,0][not_ttc_ss_indices],adata.obsm['X_' + plotting_basis][:,1][not_ttc_ss_indices],
                  marker='o',linestyle='',ms=0.5,color='#d9d9d9')
 
         # plot cells in topic steady state in dark red
-        plt.plot(adata.obsm['X_umap'][:,0][ttc_ss_indices[x]],adata.obsm['X_umap'][:,1][ttc_ss_indices[x]],
+        plt.plot(adata.obsm['X_' + plotting_basis][:,0][ttc_ss_indices[x]],adata.obsm['X_' + plotting_basis][:,1][ttc_ss_indices[x]],
                  marker='o', linestyle='',ms=0.5,color='#ba2100')
         
-        plt.gca().set_aspect('equal')
+        #plt.gca().set_aspect('equal')
 
-        plt.title("Topic " + str(k) + " steady state thresholding (thresh=" + str(steady_state_perc[x]) + "%)")
+        ss_pctile = steady_state_perc[x] if isinstance(steady_state_perc, list) else steady_state_perc
+        
+        plt.title("Topic " + str(k) + " steady state thresholding (thresh=" + str(ss_pctile) + "%)")
 
         plt.axis('off')
         plt.savefig(subset_save_prefix+"topic" + str(k) + "_ss_thresh.png",format='png', dpi=300)
