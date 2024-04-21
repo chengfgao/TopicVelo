@@ -214,6 +214,7 @@ def Combined_Topics_Transitions(adata, topics = None,
                                                                   topic_type = topic_type)
     
     #compute with scVelo
+    print("Calculating global scVelo velocity (probably legacy; may remove later)")
     scv.tl.velocity(adata, vkey='velocity')
     
     #store the transition matrices from topics
@@ -221,6 +222,9 @@ def Combined_Topics_Transitions(adata, topics = None,
     #compute transition matrix for each topic
     for x in range(len(topics)):
         k = topics[x]
+
+        print("")
+        print("Calculating velocities and TM for topic " + str(k) + " (0-indexed)")
 
         # plot topic threshold
 
@@ -328,6 +332,9 @@ def Combined_Topics_Transitions(adata, topics = None,
             TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity'))
 
     TM_save_path = subset_save_prefix + 'TransitionMatrix.npz'
+
+    print("")
+    print("Constructing integrated transition matrix")
     
     #Use topic-specific matrices and topic weights to construct integrated transition matrix
     if not exists(TM_save_path) or recompute_matrix:
@@ -352,8 +359,10 @@ def Combined_Topics_Transitions(adata, topics = None,
         #construct the combined transition matrix
         combined_TM = csr_matrix((n,n), dtype=np.float32)
         for x in range(len(topics)):
+
             #track number of topics
-            print(x)
+            print("Writing topic " + str(topics[x]) + " to integrated TM")
+            
             TM_k = TMs[x]
             #iterate through cells in the topic
             cells_k_indices =  ttc_indices[x] 
