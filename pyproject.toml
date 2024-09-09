@@ -1,0 +1,74 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+
+[project]
+name = "topicvelo"
+version = "0.0.2"
+description = "TopicVelo: Dissection and Integration of Bursty Transcriptional Dynamics for Complex Systems"
+readme = {file = "README_pypi.txt", content-type="text/plain"}
+requires-python = ">=3.7"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "Frank Gao"},
+]
+maintainers = [
+    {name = "Frank Gao", email = "frankgao19@uchicago.edu"},
+]
+keywords=[
+    "RNA",
+    "velocity",
+    "single cell",
+    "transcriptional bursting",
+    "transcriptomics",
+    "stochastic",
+    "topic modeling",
+]
+classifiers=[
+    "License :: OSI Approved :: BSD License",
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "anndata>=0.7.5",
+    "scanpy>=1.5",
+    "loompy>=2.0.12",
+    "umap-learn>=0.3.10",
+    "numba>=0.41.0",
+    "numpy>=1.17",
+    "pandas>=1.1.1, !=1.4.0",
+    "scipy>=1.4.1",
+    "matplotlib>=3.3.0",
+    "scvelo>=0.2.1",
+    "deeptime>=0.4.3"
+]
+# "scikit-learn>=0.21.2, <1.2.0",
+
+[tool.setuptools]
+packages = ["topicvelo"]
+package-dir = {"" = "src"}
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+xfail_strict = true
+filterwarnings = [
+    "ignore:invalid value encountered in:RuntimeWarning",
+    "ignore:overflow encountered in:RuntimeWarning",
+    "ignore::scipy.sparse.SparseEfficiencyWarning",
+    "ignore:X.dtype being converted:FutureWarning",
+    "ignore::anndata.OldFormatWarning",
+    "ignore::anndata.ImplicitModificationWarning",
+]
+
+[project.urls]
+"Homepage"="https://github.com/chengfgao/TopicVelo"
+"Bug Tracker"="https://github.com/chengfgao/TopicVelo/issues"
+
+
