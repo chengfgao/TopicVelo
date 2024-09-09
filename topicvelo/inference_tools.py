@@ -10,7 +10,7 @@ from scipy.optimize import minimize
 import time
 from functools import partial
 
-from .transcription_simulation import GeometricBurstTranscription, JointDistributionAnalysis, MarginalDistributionFromJD, FirstMomentsFromJD, JointDistributionAnalysis_exp
+from .transcription_simulation import geometric_burst_transcription, joint_distribution_analysis, marginal_dist_from_jd, first_moments_from_jd, joint_distribution_analysis_exper
 
 '''
 miscellaneous tools
@@ -24,8 +24,8 @@ def progressBar(current, total, barLength = 20):
 '''
 One State inference tools
 '''
-def OneState_SteadyState_JD(alpha, beta, gamma, umax, smax):
-    def OneState_SteadyState_JD_us(alpha, beta, gamma, u, s):
+def os_ss_jd(alpha, beta, gamma, umax, smax):
+    def os_ss_jd_us(alpha, beta, gamma, u, s):
         a = alpha/beta
         b = alpha/gamma
         Pus = np.float_power(a, u)*np.float_power(b, s)*np.exp(-a-b)/ scipy.special.factorial(u) / scipy.special.factorial(s)  
@@ -33,10 +33,10 @@ def OneState_SteadyState_JD(alpha, beta, gamma, umax, smax):
     ana_p = np.zeros((umax, smax)) 
     for u in range(umax):
         for s in range(smax):
-            ana_p[u,s] = OneState_SteadyState_JD_us(alpha, beta, gamma, u, s)
+            ana_p[u,s] = os_ss_jd_us(alpha, beta, gamma, u, s)
     return ana_p
 
-def OneState_Inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_state_velocity', savestring='OneState_Inferences.npz'):
+def os_inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_state_velocity', savestring='OneState_Inferences.npz'):
     n = adata.n_vars
     
     os_gamma = np.zeros(n)
@@ -57,8 +57,8 @@ def OneState_Inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_s
             os_alpha[i] = alpha
             os_gamma[i] = gamma
             #Compute the joint distribution
-            model_JD = OneState_SteadyState_JD(alpha, 1, gamma, np.max(gene_i_U), np.max(gene_i_S))
-            minKL[i] = KLdivergence(gene_i_JD, modelJD)
+            model_JD = os_ss_jd(alpha, 1, gamma, np.max(gene_i_U), np.max(gene_i_S))
+            minKL[i] = KL_divergence(gene_i_JD, modelJD)
     vals_to_save = {'alpha': os_alpha, 'gamma':os_gamma, 'KLdiv':minKL}
     np.savez(savestring, **vals_to_save)
     gamma_key = vkey+'_gamma'
@@ -72,7 +72,7 @@ def OneState_Inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_s
 '''
 KL divergence tools
 '''
-def KLdivergence(obsJD, modelJD, support=1e-10):    
+def KL_divergence(obsJD, modelJD, support=1e-10):    
     '''
     Compute the KL divergence between 
     obsJD (a matrix): observed joint distribution, the reference distribution since we want to find anaJD as close to obsJD as possible
@@ -115,25 +115,25 @@ def KLdivergence(obsJD, modelJD, support=1e-10):
                 mJD[i, j] = support
     return np.sum(kl_div(oJD, mJD))
 
-def KLdivergence_simulations(obsJD, kon, b, beta, gamma, burnin = 50000, num_reactions = 500000): 
+def KL_divergence_sim(obsJD, kon, b, beta, gamma, burnin = 50000, num_reactions = 500000): 
     '''
     GeometricBurstTranscription
     '''
-    U, S, dt = GeometricBurstTranscription(kon, b, beta, gamma, num_reactions)
+    U, S, dt = geometric_burst_transcription(kon, b, beta, gamma, num_reactions)
     U = U[burnin:]
     S = S[burnin:]
     dt = dt[burnin:]
-    JD_ij = JointDistributionAnalysis(U, S, dt)
-    return KLdivergence(obsJD, JD_ij)
+    JD_ij = joint_distribution_analysis(U, S, dt)
+    return KL_divergence(obsJD, JD_ij)
     
 '''
 Burst Inference Tools
 '''
-def Burst_Inference_Obj(EU, ES, EU2, JD_obs, init_type='MoM', 
+def burst_inference_obj(EU, ES, EU2, JD_obs, init_type='MoM', 
                         burnin = 50000, num_reactions = 1000000, mf = 50, 
                         xt = 0.0001, ft = 0.0001):
     
-    def KLdiv_obj(x, *args):
+    def KL_div_obj(x, *args):
         '''
         x : the parameter (kon, b, gamma)
         *args = (JD_obs, burnin, num_reactions)
@@ -144,7 +144,7 @@ def Burst_Inference_Obj(EU, ES, EU2, JD_obs, init_type='MoM',
             return np.inf
         #kon, b, beta, gamma
         #setting beta 1
-        evaluation = KLdivergence_simulations(JD_obs, x[0], x[1], 1, x[2], 
+        evaluation = KL_divergence_sim(JD_obs, x[0], x[1], 1, x[2], 
                                         burnin = burnin, num_reactions = num_reactions)
         return evaluation
 
@@ -167,13 +167,13 @@ def Burst_Inference_Obj(EU, ES, EU2, JD_obs, init_type='MoM',
     x0 = [kon0, b0, gamma0]
     
     #bounds 10^-1<b<10^4, 10^-2<beta<10^2.5, 10^-2<gamma<10^2.5,
-    res = minimize(KLdiv_obj, x0, args=(JD_obs, burnin, num_reactions), 
+    res = minimize(KL_div_obj, x0, args=(JD_obs, burnin, num_reactions), 
                                                 bounds=((0.003, 100) , (0.1, 1e4), (1e-4, 1e3)),
                    method='nelder-mead', options={'maxfev':mf,'return_all':True, 'adaptive':True,   
                                                   'xatol':xt, 'fatol':ft})
     return res
 
-def Burst_Inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spliced', ukey = 'raw_unspliced', report_freq = 50,
+def burst_inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spliced', ukey = 'raw_unspliced', report_freq = 50,
                       vkey = 'burst_velocity', burnin=50000, num_reactions=500000, mf = 50, inference_method = 'Nelder-Mead'):
     '''
     inference methods:
@@ -193,7 +193,7 @@ def Burst_Inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spli
         EU_i = np.mean(gene_i_U)
         ES_i = np.mean(gene_i_S)
         EU2_i = np.var(gene_i_U)
-        gene_i_JD = JointDistributionAnalysis_exp(gene_i_U , gene_i_S)
+        gene_i_JD = joint_distribution_analysis_exper(gene_i_U , gene_i_S)
         #skip infesible optimization
         if EU_i == 0 or ES_i == 0:
             continue;
@@ -201,14 +201,15 @@ def Burst_Inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spli
             #catch extremely sparse genes
             try:
                 if inference_method == 'Nelder-Mead':
-                    res_i = Burst_Inference_Obj(EU_i, ES_i, EU2_i, gene_i_JD,
+                    res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
                                            burnin=burnin, num_reactions = num_reactions, mf=mf)
                 else:
-                    b0 = EU2/EU - 1
+                    print('Using moment estimates to compute parameters')
+                    b0 = EU2_i/EU_i - 1
                     if b0 < 0:
-                        b0 = EU2/EU
-                    kon0 = EU/b0
-                    gamma0 = EU/ES
+                        b0 = EU2_i/EU_i
+                    kon0 = EU_i/b0
+                    gamma0 = EU_i/ES_i
                     res_i = [kon0, b0, gamma0]
             except ZeroDivisionError:
                 print('insufficient data for some genes')
@@ -228,7 +229,7 @@ def Burst_Inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spli
     adata.var[gamma_key] = B_InferredParameters[:, 2]
     return B_InferredParameters, B_minKL
 
-def Burst_Inference_Gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_reactions=5000000, mf = 50):
+def burst_inference_gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_reactions=5000000, mf = 50):
     '''
     Burst inference for one gene
     '''
@@ -243,13 +244,13 @@ def Burst_Inference_Gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_
     EU_i = np.mean(gene_i_U)
     ES_i = np.mean(gene_i_S)
     EU2_i = np.var(gene_i_U)
-    gene_i_JD = JointDistributionAnalysis_exp(gene_i_U , gene_i_S)
+    gene_i_JD = joint_distribution_analysis_exper(gene_i_U , gene_i_S)
     #print warning message for infesible optimization
     if EU_i == 0 or ES_i == 0:
         print('No spliced or unspliced RNA observed')
         return      
     try:
-        res_i = Burst_Inference_Obj(EU_i, ES_i, EU2_i, gene_i_JD,
+        res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
                                            burnin=burnin, num_reactions = num_reactions, mf=mf)
     except ZeroDivisionError:
         print('Insufficient Data')
@@ -306,7 +307,7 @@ def gene_threshold_heuristic(adata, topic, topic_gene,
     #distributions over all cells
     gene_S = np.round(adata.layers[xkey][:, gene_id ].toarray().flatten()).astype(np.uint64)
     gene_U = np.round(adata.layers[ukey][:, gene_id ].toarray().flatten()).astype(np.uint64)
-    gene_JD = JointDistributionAnalysis_exp(gene_U, gene_S)
+    gene_JD = joint_distribution_analysis_exper(gene_U, gene_S)
     for i in range(len(ths)):
         #get cells above a topic threshold
         ttc_p_indices, other_cells_indices = get_cells_indices(adata, [topic], topic_weights_th_percentile = ths[i], above_or_below='above')
@@ -315,16 +316,16 @@ def gene_threshold_heuristic(adata, topic, topic_gene,
         #distributions over cells above a topic threshold
         gene_S_th_p = np.round(adata_p_subset.layers[xkey][:, gene_id ].toarray().flatten()).astype(np.uint64)
         gene_U_th_p = np.round(adata_p_subset.layers[ukey][:, gene_id ].toarray().flatten()).astype(np.uint64)
-        gene_JD_th_p = JointDistributionAnalysis_exp(gene_U_th_p, gene_S_th_p)
-        KL_Ank_ps[i] = KLdivergence(gene_JD, gene_JD_th_p)
+        gene_JD_th_p = joint_distribution_analysis_exper(gene_U_th_p, gene_S_th_p)
+        KL_Ank_ps[i] = KL_divergence(gene_JD, gene_JD_th_p)
         ttc_m_indices, other_cells_indices = get_cells_indices(adata, [topic], topic_weights_th_percentile = ths[i], above_or_below='below')
         #subset data
         adata_m_subset = adata[ttc_m_indices[0], :]
         #distributions over cells above a topic threshold
         gene_S_th_m = np.round(adata_m_subset.layers[xkey][:, gene_id ].toarray().flatten()).astype(np.uint64)
         gene_U_th_m = np.round(adata_m_subset.layers[ukey][:, gene_id ].toarray().flatten()).astype(np.uint64)
-        gene_JD_th_m = JointDistributionAnalysis_exp(gene_U_th_m, gene_S_th_m)
-        KL_Ank_ms[i] = KLdivergence(gene_JD, gene_JD_th_m)
+        gene_JD_th_m = joint_distribution_analysis_exper(gene_U_th_m, gene_S_th_m)
+        KL_Ank_ms[i] = KL_divergence(gene_JD, gene_JD_th_m)
     if rescale:
         KL_Ank_ps = (KL_Ank_ps-np.min(KL_Ank_ps))/np.max(KL_Ank_ps)
         KL_Ank_ms = (KL_Ank_ms-np.min(KL_Ank_ms))/np.max(KL_Ank_ms)

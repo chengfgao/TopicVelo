@@ -11,7 +11,7 @@ import scipy.special
 Gilliespie Simulations for one state and the burst model
 '''
 @jit(nopython=True)
-def OneStateTranscription(alpha, beta, gamma, num_reactions):
+def one_state_transcription(alpha, beta, gamma, num_reactions):
     '''
     Parameters
     ----------
@@ -68,7 +68,7 @@ def OneStateTranscription(alpha, beta, gamma, num_reactions):
     return U, S, dt
 
 @jit(nopython=True)
-def GeometricBurstTranscription(kon, b, beta, gamma, num_reactions):
+def geometric_burst_transcription(kon, b, beta, gamma, num_reactions):
     '''
     Parameters
     ----------
@@ -125,7 +125,7 @@ def GeometricBurstTranscription(kon, b, beta, gamma, num_reactions):
     return U, S, dt
 
 @jit(nopython=True)
-def MomentConvergence(x, dt):
+def moment_convergence(x, dt):
     '''
     Check the time convergence of x as a function of time (T)
     '''
@@ -134,23 +134,23 @@ def MomentConvergence(x, dt):
 '''
 Analytical solutions for the one state model 
 '''
-def OneState_SteadyState_JD_us(alpha, beta, gamma, u, s):
+def os_ss_jd_us(alpha, beta, gamma, u, s):
     a = alpha/beta
     b = alpha/gamma
     Pus = np.float_power(a, u)*np.float_power(b, s)*np.exp(-a-b)/ scipy.special.factorial(u) / scipy.special.factorial(s)  
     return Pus
-def OneState_SteadyState_JD(alpha, beta, gamma, umax, smax):
+def os_ss_jd(alpha, beta, gamma, umax, smax):
     ana_p = np.zeros((umax, smax)) 
     for u in range(umax):
         for s in range(smax):
-            ana_p[u,s] = OneState_SteadyState_JD_us(alpha, beta, gamma, u, s)
+            ana_p[u,s] = os_ss_jd_us(alpha, beta, gamma, u, s)
     return ana_p
 
 '''
 Analysis for constructing JD and obtaining moments
 '''
 @jit(nopython=True)
-def JointDistributionAnalysis(U, S, dt):
+def joint_distribution_analysis(U, S, dt):
     '''
     Construct the joint distribution from a list of (U, S) generated from simulation
     '''
@@ -162,7 +162,7 @@ def JointDistributionAnalysis(U, S, dt):
     
 
 @jit(nopython=True)
-def JointDistributionAnalysis_exp(U, S):
+def joint_distribution_analysis_exper(U, S):
     '''
     Construct the joint distribution from a list of (U, S)
     '''
@@ -172,7 +172,7 @@ def JointDistributionAnalysis_exp(U, S):
         A[U[i], S[i]] += 1
     return A/N
 
-def MarginalDistributionFromJD(JD, margin = 'S'):
+def marginal_dist_from_jd(JD, margin = 'S'):
     '''
     Given a joint distribution (row, column) = (unspliced, spliced)
     compute the marginal distribution 
@@ -182,7 +182,7 @@ def MarginalDistributionFromJD(JD, margin = 'S'):
     else:
         return np.sum(JD, axis=1)
 
-def FirstMomentsFromJD(p):
+def first_moments_from_jd(p):
     '''
     p should be U (row) by S (column)
     '''

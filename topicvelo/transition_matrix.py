@@ -8,7 +8,7 @@ from scipy.sparse import save_npz, load_npz
 from deeptime.markov.tools.analysis import stationary_distribution, mfpt
 
 
-from .inference_tools import Burst_Inference, progressBar
+from .inference_tools import burst_inference, progressBar
 '''
 Utility tools for transition matrix
 1. Cell selection
@@ -133,7 +133,7 @@ def velocity_graph(adata, vkey = 'burst_velocity',
             scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
 
 
-def Combined_Topics_Transitions(adata, topics = None, 
+def combined_topics_transitions(adata, topics = None, 
                                 topic_weights_th_percentile = None,
                                 recompute = True,
                                 recompute_matrix = True,
@@ -252,7 +252,7 @@ def Combined_Topics_Transitions(adata, topics = None,
             save_path = save_infer + '.npz'
             #recompute if the file does not exist or forced to recompute
             if not exists(save_path) or recompute:
-                Burst_Inference(adata_subset_ss, savestring = save_path, report_freq = 50,
+                burst_inference(adata_subset_ss, savestring = save_path, report_freq = 50,
                             xkey = infer_xkey, ukey = infer_ukey,
                             vkey = 'burst_velocity')
             inferredParams = np.load(save_path)

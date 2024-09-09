@@ -19,7 +19,7 @@ def cells_to_documents(X_i, gene_names):
 '''
 Identify discrete clusters and topic genes from fastTopics
 '''
-def FastTopics_cluster_assign(adata, L, t_type = 'fastTopics'):
+def fast_topics_cluster_assign(adata, L, t_type = 'fastTopics'):
     '''
     topic_model: a tomotopy topic model object
     '''
@@ -35,7 +35,7 @@ def FastTopics_cluster_assign(adata, L, t_type = 'fastTopics'):
         topic_clusters[i] =  np.argmax(L[i])
     adata.obs[t_type+'_cluster'] = topic_clusters
 
-def TopicGeneFiltering(lfc, lfsr, lfc_up_th = 0.5, lfc_down_th=-0.1, lfsr_up_th = 0.001, lfsr_down_th = 0.001):
+def topic_genes_filter(lfc, lfsr, lfc_up_th = 0.5, lfc_down_th=-0.1, lfsr_up_th = 0.001, lfsr_down_th = 0.001):
     '''
     lfc: the postmean log fold change
     lfsr: the local false sigh rate
@@ -58,7 +58,7 @@ def TopicGeneFiltering(lfc, lfsr, lfc_up_th = 0.5, lfc_down_th=-0.1, lfsr_up_th 
         top_genes[:,k] = top_genes_k
     return top_genes, top_genes_up, top_genes_down
 
-def TopicGenesQC(adata, top_genes, xkey = 'spliced', ukey = 'unspliced',
+def topic_genes_qc(adata, top_genes, xkey = 'spliced', ukey = 'unspliced',
                           quant_thr = 98, spliced_thr = 1, unspliced_thr = 1,
                           sup_ratio_lb = 1/10, sup_ratio_ub= 10,
                           var_ratio_lb = 0.03, var_ratio_ub = 3):
@@ -96,7 +96,7 @@ def TopicGenesQC(adata, top_genes, xkey = 'spliced', ukey = 'unspliced',
         reasonable_top_genes.append(list(set(top_genes[i]).intersection(set(reasonable_genes))))
     return reasonable_top_genes
 
-def remove_U(top_genes, gene_names):
+def remove_u(top_genes, gene_names):
     '''
     remove the trailing '_U' from a list of genes when applicable. Also remove duplicates
     '''

@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib import pyplot
 
-from .transcription_simulation import GeometricBurstTranscription, JointDistributionAnalysis, JointDistributionAnalysis_exp, OneState_SteadyState_JD
-from .inference_tools import KLdivergence
+from .transcription_simulation import geometric_burst_transcription, joint_distribution_analysis, joint_distribution_analysis_exper, os_ss_jd
+from .inference_tools import KL_divergence
 
 plt.rcParams["font.family"] = "Arial"
 # matplotlib.rcParams['pdf.fonttype'] = 42
@@ -87,7 +87,7 @@ Joint distribution from experiments for all cells
 1. provided the gene JD
 2. Specify a given gene in an adata object
 '''
-def JD_Plot(gene_JD, 
+def plot_jd(gene_JD, 
             x_cutoff = None, y_cutoff = None,
             vmax = None, vmin = None, log_scale_cb = False, label =False,
             save = False, title='', title_size=16, cbar_orientation='vertical'):
@@ -112,14 +112,14 @@ def JD_Plot(gene_JD,
     if save:
         plt.savefig(save, format='svg', dpi=300, bbox_inches='tight')
     
-def Experimental_JD_Plot(adata, gene_name, 
+def plot_exper_jd(adata, gene_name, 
                         xkey = 'spliced', ukey='unspliced', 
                         x_cutoff = None, y_cutoff = None, cmap='YlOrBr',
                         vmin = None, vmax = None, log_scale_cb = True, save=False):
     gene_id = adata.var.index.get_loc(gene_name)
     gene_S = np.round(adata.layers[xkey][:, gene_id ].toarray().flatten()).astype(np.uint64)
     gene_U = np.round(adata.layers[ukey][:, gene_id ].toarray().flatten()).astype(np.uint64)
-    gene_JD = JointDistributionAnalysis_exp(gene_U, gene_S)
+    gene_JD = joint_distribution_analysis_exper(gene_U, gene_S)
     fig, ax = plt.subplots()
     if x_cutoff is not None: 
         if log_scale_cb:
@@ -145,7 +145,7 @@ Joint distribution from simulation and analytical computations
 1. Simulation for JD from the burst model
 2. Calculation for JD from the one state model
 '''
-def Burst_Simulation_JD_Plot(gene_name, params, 
+def plot_burst_sim_jd(gene_name, params, 
                           num_reactions = 1000000, burnin = 100000,
                           x_cutoff = None, y_cutoff = None,
                           vmax = None, vmin = None, log_scale_cb = False, 
@@ -154,11 +154,11 @@ def Burst_Simulation_JD_Plot(gene_name, params,
     kon, b, gamma = params
     #splicing rate
     beta = 1
-    U, S, dt = GeometricBurstTranscription(kon, b, beta, gamma, num_reactions)
+    U, S, dt = geometric_burst_transcription(kon, b, beta, gamma, num_reactions)
     U = U[burnin:]
     S = S[burnin:]
     dt = dt[burnin:]
-    gene_JD = JointDistributionAnalysis(U, S, dt)
+    gene_JD = joint_distribution_analysis(U, S, dt)
     fig, ax = plt.subplots()
     if x_cutoff is not None: 
         if log_scale_cb:
@@ -181,28 +181,15 @@ def Burst_Simulation_JD_Plot(gene_name, params,
     return gene_JD
 
 
-# def OneState_SteadyState_JD_us(alpha, beta, gamma, u, s):
-#     a = alpha/beta
-#     b = alpha/gamma
-#     Pus = np.float_power(a, u)*np.float_power(b, s)*np.exp(-a-b)/ scipy.special.factorial(u) / scipy.special.factorial(s)  
-#     return Pus
-
-# def OneState_SteadyState_JD(alpha, beta, gamma, umax, smax):
-#     ana_p = np.zeros((umax, smax)) 
-#     for u in range(umax):
-#         for s in range(smax):
-#             ana_p[u,s] = OneState_SteadyState_JD_us(alpha, beta, gamma, u, s)
-#     return ana_p
-
-def OS_Analytical_JD_Plot(gene_name, params, 
+def plot_os_analytical_jd(gene_name, params, 
                           umax, smax,
                           vmax = None, vmin = None, log_scale_cb = False, 
                           save = False):
-    #Two State Parameters
+    #One State Parameters
     alpha, gamma = params
     #splicing rate
     beta = 1
-    gene_JD = OneState_SteadyState_JD(alpha, beta, gamma, umax, smax)
+    gene_JD = os_ss_jd(alpha, beta, gamma, umax, smax)
     fig, ax = plt.subplots()
     if log_scale_cb:
         im = ax.imshow(gene_JD, cmap='YlOrBr', aspect='equal',
@@ -227,7 +214,7 @@ For a given gene:
 1. Scatter plot highlighting Proportions from different clusters for each point in the discrete distribution
 2. Heatmap of the joint distributions in different clusters 
 '''
-def Experimental_JD_Cluster(adata, gene_name, color_by = 'lda_cluster',
+def plot_exper_jd_clusters(adata, gene_name, color_by = 'lda_cluster',
                             layers = 'raw_spliced', x_scatters = 2, sp =0.15, all_cells = False, 
                             x_cutoff = None, y_cutoff = None, markersize = 10, alpha =1, 
                             vmin = None, vmax = None):
@@ -265,7 +252,7 @@ def Experimental_JD_Cluster(adata, gene_name, color_by = 'lda_cluster',
         gene_S_ci = gene_S[ci_indices]
         s_max_ci = int(np.max(gene_S_ci))
         u_max_ci = int(np.max(gene_U_ci))
-        gene_JD_ci = JointDistributionAnalysis_exp(gene_U_ci, gene_S_ci)
+        gene_JD_ci = joint_distribution_analysis_exper(gene_U_ci, gene_S_ci)
         min_JD = np.min(gene_JD_ci[np.nonzero(gene_JD_ci)])
         U = []
         S = []
@@ -292,7 +279,7 @@ def Experimental_JD_Cluster(adata, gene_name, color_by = 'lda_cluster',
         U = []
         S = []
         dist = []
-        gene_JD = JointDistributionAnalysis_exp(gene_U, gene_S)
+        gene_JD = joint_distribution_analysis_exper(gene_U, gene_S)
         for u in range(u_max+1):
             for s in range(s_max+1):
                 dist_us = gene_JD[u,s]
@@ -315,7 +302,7 @@ def Experimental_JD_Cluster(adata, gene_name, color_by = 'lda_cluster',
     savestring = gene_name + '_by_'+ color_by+'.png'
     plt.savefig(savestring, edgecolor='black', dpi=300, bbox_inches = "tight", facecolor='white')
     
-def ExpJD_Cluster_Focus_HeatMap(adata, gene_name, clusters= 'lda_cluster', focus = '0', gamma = None, 
+def heatmap_exper_cluster_focus_jd(adata, gene_name, clusters= 'lda_cluster', focus = '0', gamma = None, 
                             S_layer = 'raw_spliced', U_layer = 'raw_unspliced', cmap = 'YlOrRd',
                             x_cutoff = None, y_cutoff = None, height =10, 
                             vmin = 1e-4, vmax = None, log_scale = True):
@@ -370,7 +357,7 @@ def ExpJD_Cluster_Focus_HeatMap(adata, gene_name, clusters= 'lda_cluster', focus
         gene_U_ci = gene_U[ci_indices]
         gene_S_ci = gene_S[ci_indices]
         #get jd for the cluster
-        gene_JD_ci = JointDistributionAnalysis_exp(gene_U_ci, gene_S_ci)
+        gene_JD_ci = joint_distribution_analysis_exper(gene_U_ci, gene_S_ci)
         
         #put the cluster jd into a large box
         Ui_max = int(np.max(gene_U_ci)+1)
@@ -382,7 +369,7 @@ def ExpJD_Cluster_Focus_HeatMap(adata, gene_name, clusters= 'lda_cluster', focus
         max_JDs.append(np.max(gene_JD_ci))
         
     #for all cells
-    gene_JD = JointDistributionAnalysis_exp(gene_U, gene_S)  
+    gene_JD = joint_distribution_analysis_exper(gene_U, gene_S)  
     #get the nonzero min and max of the joint distribution
     max_JDs.append(np.max(gene_JD))
     

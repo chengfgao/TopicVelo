@@ -82,7 +82,7 @@ Basic Plotting functions
 2. For gene expression
 3. For estimated RNA velocity
 '''
-def Plot_Topics(adata, topic, t_type = 'fastTopics',
+def plot_topics(adata, topic, t_type = 'fastTopics',
                 basis='umap', perc = [2, 98], point_size=2,
                 savefile = False, shrink=0.35, labelsize=10, figsize=(7,5), cbar_save=None):
     '''
@@ -127,7 +127,7 @@ def Plot_Topics(adata, topic, t_type = 'fastTopics',
     if savefile:
         plt.savefig(cbar_save, format='svg', dpi=300, transparent=True)
 
-def Plot_Genes(adata, gene, layers, expr_percentile = 90, log_scale = False, basis='umap', 
+def plot_genes(adata, gene, layers, expr_percentile = 90, log_scale = False, basis='umap', 
                title ='', savefile = False, s = 2, cbar_save=None,
                aspect_ratio=1, shrink=1, figsize=(7,5), labelsize=30):
     '''
@@ -181,7 +181,7 @@ def velocity_bounds(adata, gene, vkeys = ['burst_velocity', 'velocity'], perc=[2
         print(ub)    
         return lb, ub
 
-def Plot_Velocity(adata, gene, lb=None, ub=None, perc = [2, 98], 
+def plot_velocity(adata, gene, lb=None, ub=None, perc = [2, 98], 
                   adata_subset = None, highlight_sign_diff = False,
                   vkey='burst_velocity', basis='umap', 
                   s=2, cmap = 'RdYlBu', sort_by_magnitude = False,
@@ -264,7 +264,7 @@ def Plot_Velocity(adata, gene, lb=None, ub=None, perc = [2, 98],
 '''
 Horizontal Bar chart for visualizing top genes within a topic
 '''
-def pl_TopTopicGenes(n, topic, gene_names, top_genes_indices, log_fold_change, z, figsize=(15,10),
+def plot_top_topic_genes(n, topic, gene_names, top_genes_indices, log_fold_change, z, figsize=(15,10),
                      save='', up_or_down = 'up', xticks=[], save_type = 'svg', ticksize=20):
     '''
     n = number of top genes. The order is determined by selecting a lfsr threshold 
