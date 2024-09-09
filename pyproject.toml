@@ -43,7 +43,7 @@ dependencies = [
     "numba>=0.41.0",
     "numpy>=1.17",
     "pandas>=1.1.1, !=1.4.0",
-    "scipy>=1.4.1",
+    "scipy>=1.4.1, <=1.13.0",
     "matplotlib>=3.3.0",
     "scvelo>=0.2.1",
     "deeptime>=0.4.3"

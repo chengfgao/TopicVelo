@@ -265,7 +265,7 @@ def plot_velocity(adata, gene, lb=None, ub=None, perc = [2, 98],
 Horizontal Bar chart for visualizing top genes within a topic
 '''
 def plot_top_topic_genes(n, topic, gene_names, top_genes_indices, log_fold_change, z, figsize=(15,10),
-                     save='', up_or_down = 'up', xticks=[], save_type = 'svg', ticksize=20):
+                     save=False, up_or_down = 'up', xticks=[], save_type = 'svg', ticksize=20):
     '''
     n = number of top genes. The order is determined by selecting a lfsr threshold 
     then sort based on log-fold change
@@ -297,24 +297,33 @@ def plot_top_topic_genes(n, topic, gene_names, top_genes_indices, log_fold_chang
     z_ttg_sorted = np.array(z_ttg)[sorted_indices][:n]
     #square root the absolute value of z-scores
     z_ttg_sorted = np.abs(z_ttg_sorted)
-    #change the aspect ratio
-    plt.figure(figsize=figsize)
-    #color by z score
-    data_color_normalized = [(x-min(z_ttg_sorted)) / (max(z_ttg_sorted)- min(z_ttg_sorted)) for x in z_ttg_sorted]
-    my_cmap = plt.cm.get_cmap('plasma_r')
-    colors = my_cmap(data_color_normalized)
-    plt.barh(np.flip(ttg_names_sorted), np.flip(log_fold_change_ttg_sorted), color = np.flip(colors, axis=0),  height=0.5)
-    plt.yticks(fontsize=ticksize)
-    plt.xticks(fontsize=ticksize, ticks=xticks)
-    #plt.xlabel('Log Fold Change', fontsize=30)
-    sm = matplotlib.cm.ScalarMappable(cmap=my_cmap, norm=plt.Normalize(np.min(z_ttg_sorted), np.max(z_ttg_sorted)))
+
+    # Create figure and axes
+    fig, ax = plt.subplots(figsize=figsize)
+
+    #create colors
+    sm = matplotlib.cm.ScalarMappable(cmap=plt.cm.get_cmap('plasma_r'), norm=plt.Normalize(np.min(z_ttg_sorted), np.max(z_ttg_sorted)))
     sm.set_array([])
-    cbar = plt.colorbar(sm)
-    #cbar.set_label('|Z-Scores|', rotation=270, labelpad=25, fontsize=30)
-    cbar.ax.tick_params(labelsize=ticksize) 
+    colors = sm.to_rgba(z_ttg_sorted)
+
+    # Plot the horizontal bars
+    bars = ax.barh(np.flip(ttg_names_sorted), np.flip(log_fold_change_ttg_sorted), 
+                   color=np.flip(colors, axis=0), height=0.5)
+
+    ax.set_yticks(range(len(ttg_names_sorted)))
+    ax.set_yticklabels(np.flip(ttg_names_sorted), fontsize=ticksize)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticks, fontsize=ticksize)
+
+    # Create colorbar
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.ax.tick_params(labelsize=ticksize)
+
     plt.tight_layout()
-    plt.savefig(save, format=save_type, transparent=False, facecolor='white', bbox_inches='tight', pad_inches=0)
+    if save:
+        plt.savefig(save, format=save_type, transparent=False, facecolor='white', bbox_inches='tight', pad_inches=0)
     plt.show()
+
     return ttg_names, log_fold_change_ttg, z_ttg 
 
 
