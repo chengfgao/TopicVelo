@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.so
+.DS_Store
 .cache
 
 # OS or Editor files and folders
