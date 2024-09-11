@@ -140,9 +140,9 @@ def velocity_graph(adata,
 
 def combined_topics_transitions(adata, 
                                 topics: list = None, 
-                                topic_weights_th_percentile: list = None,
+                                topic_weights_th_percentile: list|float = 50,
                                 steady_state_perc: float = 95,
-                                pca_n_comps:int = 20,
+                                pca_n_comps: int = 20,
                                 velocity_type: str = 'burst',
                                 infer_xkey ='spliced',
                                 infer_ukey ='unspliced',
@@ -159,27 +159,62 @@ def combined_topics_transitions(adata,
                                 recompute_matrix = True,
                                 subset_save_prefix = ''):
     '''
-    Main function for TopicVelo
-    Compute topic-specific transition matrices then integrate them according to topic weights. 
+    Main function for TopicVelo 
+    1. Compute topic-specific transition matrices using specified velocity methodson the topic genes
+    2. Construct a global transition matrix from topic transition matrix
+    (See paper for more technical description)
 
-    Construct a global transition matrix from topic transition matrix
-    Topic cells are selected. There need to cells overlapping from all the topics. 
-   
-    Each topic transition matrix is computed using the top topic genes using FastTopics and user-specfied parameters.
-    
-    The topic transition matrices are combined using cell weights
-    (e.g. if a cell is only assigned to topic 1, that cell has weight 1 in topic 1.
-    if a cell is assigned to topic 1 with weight 0.6 and topic 2 with weight 0.3, that cell's transition
-    matrix will be 2/3*t2 + 1/3*t1 )
-    
-    The global transition matrix will be row-normalized to 1. 
-    
-    ***the adata object should contain the top genes from user-specified criteria in adata.uns['top_genes'] 
-    
-    topics: the topics we want to piece up together 
-        default: None, all of the topics will be used
-        otherwise, must be a list. A list of one topic is permitted. 
-            
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix.
+    topics : list, optional
+        The topics to piece together. Default is None, meaning all topics will be used.
+    topic_weights_th_percentile : list|float, optional
+        Percentile thresholds for topic weights. Default is 50. 
+        You should be specifying this althought the current setup is somewhat insensitive to this choice. 
+    steady_state_perc : float, optional
+        Percentile for steady-state cells. Default is 95.
+    pca_n_comps : int, optional
+        Number of principal components for PCA for computing the distances in topic-specific neighborhoods. 
+        Default is 20. Note this needs to less than the number of topic genes
+    velocity_type : str, optional
+        Type of velocity to compute ('burst' or 'stochastic'). Default is 'burst'.
+    infer_xkey : str, optional
+        Key for spliced counts for inferring RNA velocity parameters in adata.layers. Default is 'spliced'.
+    infer_ukey : str, optional
+        Key for unspliced counts for inferring RNA velocity parameters in adata.layers. Default is 'unspliced'.
+    embed_xkey : str, optional
+        Key for the spliced expression used for computing transition matrix. Default is 'Ms'.
+    embed_ukey : str, optional
+        Key for the unspliced expression for computing transition matrix. Default is 'Mu'.
+    topic_type : str, optional
+        Type of topic modeling to use. Default is 'fastTopics'.
+    topic_genes_key : str, optional
+        Key for top genes in `adata.uns`. Default is 'top_genes'.
+    params_key : str, optional
+        Key for storing parameters in `adata.uns`. Default is 'topicVelo_params'.
+    transition_matrix_mode : str, optional
+        Mode for transition matrix computation. Default is 'count'.
+    transition_matrix_name : str, optional
+        The name to store the transition matrix in `adata.obsp`. Default is None.
+    n_workers : int, optional
+        Number of workers for parallel computation. Default is -1 which uses all cores.
+    compute_confidence : bool, optional
+        Whether to compute confidence for velocities. Default is False.
+    recompute_velocity : bool, optional
+        Whether to recompute velocities. Default is True.
+    recompute_matrix : bool, optional
+        Whether to recompute the transition matrix. Default is True.
+    subset_save_prefix : str, optional
+        Prefix for saving subsets. Default is ''.
+
+    Returns
+    -------
+    combined_TM : csr_matrix
+        Combined transition matrix.
+    ttc_indices : list
+        Indices of topic cells that satisfy the threshold.
     '''
     #extract the number of cells and topics
     n = adata.n_obs
@@ -187,6 +222,11 @@ def combined_topics_transitions(adata,
     #get the topic genes
     topic_genes = adata.uns[topic_genes_key]
         
+    if topics is None:
+        topics = np.arange(K, dtype=int)
+    if type(topic_weights_th_percentile)==float:
+        topic_weights_th_percentile = [topic_weights_th_percentile]*len*(topics)
+
     #add params to adata
     topicVelo_params = {}
     topicVelo_params['topics'] = topics
@@ -197,7 +237,8 @@ def combined_topics_transitions(adata,
     topicVelo_params['embed_xkey'] = embed_xkey
     topicVelo_params['embed_ukey'] = embed_ukey 
     adata.uns[params_key] = topicVelo_params
-    
+
+
     #for computing the confidence (coherence within neighborhood of velocity
     if compute_confidence:
         topics_cells_velocity_confidence = np.zeros((len(topics),n))
@@ -278,9 +319,7 @@ def combined_topics_transitions(adata,
             topic_cell_vel_confidence[ttc_indices[x]] = adata_subset.obs[f'{confidence_vkey}_confidence']
             topics_cells_velocity_confidence[x] = topic_cell_vel_confidence
 
-
     TM_save_path = subset_save_prefix + 'combined_transition_matrix.npz'
-    #Use topic-specific matrices and topic weights to construct integrated transition matrix
     if not exists(TM_save_path) or recompute_matrix:
         #compute the cell weights for transition matrix
         cells_weights_for_tm = np.zeros((n,len(topics)))
@@ -300,8 +339,7 @@ def combined_topics_transitions(adata,
             topic_k_transition_matrix = csr_matrix(load_npz(subset_save_prefix + f'T{k}_transition_matrix.npz'))
             #scale the topic-specific transition matrix by normalized cell topic weights and add to combined transition matrix
             combined_TM = combined_TM + topic_k_transition_matrix.multiply(cells_weights_for_tm[:, x][:, np.newaxis])
-        #row normalize to 1
-        combined_TM = normalize(combined_TM, norm='l1', axis=1)
+        combined_TM = normalize(combined_TM, norm='l1', axis=1) #row normalize to 1
         #save transition matrix 
         save_npz(TM_save_path, combined_TM)
 
