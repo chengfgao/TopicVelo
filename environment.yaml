@@ -7,8 +7,9 @@ dependencies:
   - python=3.11.9
   - pip
   - pip:
+    #This order is very important. Do not change.
     - scipy==1.13.0
-    - scanpy
-    - tomotopy
-    - scvelo
-    - deeptime
+    - scanpy==1.10.2
+    - tomotopy==0.13.0
+    - scvelo==0.3.2
+    - deeptime==0.4.4
