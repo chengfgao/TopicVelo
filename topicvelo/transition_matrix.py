@@ -6,6 +6,7 @@ from os.path import exists
 from scipy.sparse import save_npz, load_npz
 from .inference_tools import burst_inference
 from sklearn.preprocessing import normalize
+from tqdm import tqdm
 
 '''
 Utility tools for transition matrix
@@ -152,6 +153,7 @@ def combined_topics_transitions(adata,
                                 params_key = 'topicVelo_params',
                                 transition_matrix_mode = 'count', 
                                 transition_matrix_name = None,
+                                n_workers = -1, 
                                 compute_confidence = False,
                                 recompute_velocity = True,
                                 recompute_matrix = True,
@@ -233,25 +235,30 @@ def combined_topics_transitions(adata,
         if velocity_type == 'stochastic':
             #compute velocity, velocity_graph and the transition matrix
             scv.tl.velocity(adata_subset, vkey='velocity')
-            scv.tl.velocity_graph(adata_subset, vkey='velocity', gene_subset=ttg_k)
+            scv.tl.velocity_graph(adata_subset, vkey='velocity', gene_subset=ttg_k, n_jobs=n_workers)
             topic_k_transition_matrix = scv.utils.get_transition_matrix(adata_subset, vkey='velocity')            
         elif velocity_type == 'burst':
             #burst topic genes and cells. Do not recompute if no need
             save_path = subset_save_prefix+f'T{k}'+'_'+infer_xkey+'_'+embed_xkey + '.npz'
             #recompute if the file does not exist or forced to recompute
             if not exists(save_path) or recompute_velocity:
-                burst_inference(adata_subset_ss, savestring = save_path,
-                            xkey = infer_xkey, ukey = infer_ukey,
-                            vkey = 'burst_velocity')
+                burst_inference(adata_subset_ss, 
+                                savestring = save_path,
+                                xkey = infer_xkey, 
+                                ukey = infer_ukey,
+                                vkey = 'burst_velocity',
+                                n_workers=n_workers)
             inferredParams = np.load(save_path)
             #add the burst_velocity_gamma values
             adata_subset.var['burst_velocity_gamma'] = inferredParams['Optimal Parameters'][:, 2]
             adata_subset.var['burst_velocity_KLdiv'] = inferredParams['KLdiv']
 
             velocity_graph(adata_subset, 
-                        transition_matrix_mode=transition_matrix_mode, 
-                        xkey = embed_xkey, ukey = embed_ukey,
-                        gene_subset = ttg_k)  
+                           xkey = embed_xkey, 
+                           ukey = embed_ukey,
+                           gene_subset = ttg_k, 
+                           transition_matrix_mode=transition_matrix_mode,
+                           n_jobs=n_workers)  
             
             #add topic gene kl divergence (from simulated with MLE to experimental)
             topic_gene_kl_str = 'Topic'+str(k)+'_KLdiv'
@@ -289,7 +296,7 @@ def combined_topics_transitions(adata,
 
         #construct the combined transition matrix
         combined_TM = csr_matrix((n,n), dtype=np.float32)
-        for x, k in enumerate(topics):
+        for x, k in enumerate(tqdm(topics, desc='Computing the integrated transition matrix')):
             topic_k_transition_matrix = csr_matrix(load_npz(subset_save_prefix + f'T{k}_transition_matrix.npz'))
             #scale the topic-specific transition matrix by normalized cell topic weights and add to combined transition matrix
             combined_TM = combined_TM + topic_k_transition_matrix.multiply(cells_weights_for_tm[:, x][:, np.newaxis])

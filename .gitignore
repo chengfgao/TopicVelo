@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 .cache
 *.npz
+*.svg
 
 # OS or Editor files and folders
 .DS_Store
