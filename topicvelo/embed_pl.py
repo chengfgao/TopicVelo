@@ -9,7 +9,6 @@ import matplotlib as mpl
 import matplotlib
 import seaborn as sns
 import matplotlib.colors as colors
-
 from .tm_utils import get_cells_indices
 
 
@@ -430,6 +429,7 @@ def topic_transitions_with_weights_plot(adata, adata_subset, topic,
         plt.clf()
         return fig
     
+
 '''
 Plot for mfpt to a group of target cells
 '''    
@@ -469,7 +469,6 @@ def mfpt_plot(adata, dest, Tkey='topicVelo',
     #change the aspect ratio
     plt.figure(figsize=figsize)
 
-    
     #plot the zeros in the background
     plt.scatter(adata.obsm[basis][target_indices,0], adata.obsm[basis][target_indices,1],
                     s=point_size, c =dest_color, zorder=1, label = 'Target Cells')
@@ -506,6 +505,7 @@ def mfpt_plot(adata, dest, Tkey='topicVelo',
         plt.savefig(cbar_save, format='svg', dpi=300, transparent=True)
     return
 
+
 '''
 Comparision for visualzing different contributions to stationary distributions
 1. heatmap 
@@ -518,6 +518,7 @@ def cell_categorical_annotation_indices(adata, annotations, categories):
         if adata.obs[annotations][i] in categories:
             cells.append(i)
     return cells
+
 
 def comparison_heatmap(adata, keys, labels=None, groupby='cell_type', categories=None,
                         fontsize=16, title=None,
@@ -613,107 +614,9 @@ def comparision_stacked_bar_plot(adata, keys, labels=None, groupby='cell_type', 
         plt.savefig(savefile, format='svg', dpi=300, transparent=True)
     else:
         plt.show()
-    
-
-'''
-The violin plot used to visualize difference in distributions of mfpt
-'''
-def comparision_violin_plot(adata, keys, groupby='cell_type', categories=None,
-                        key_spacing = 1, groupby_spacing=2.75, figsize=(15,5),
-                        facecolors = None, edgecolor = 'black', 
-                        fontsize=16, ylabel=None, title=None,
-                        qs=[25,75], ylim=None,
-                        savefile=None):
-    '''
-    parameters
-    ---------------
-    adata: (Adata) object containing scRNAseq information
-    keys: (list of str) in adata.obs that contains the data
-    groupby: (str) the name of grouping used to divide up the values in keys
-    categories: (list of str) the categroies within a group to be used
-    key_spacing: (float) spacing between violins within each key
-    groupby_spacing: (float) spacing between violins among keys (between categories)
-    facecolors; (list of str) specify the colors for each key
-    
-    
-    
-    returns
-    ---------------
-    None
-    
-    '''
-    from matplotlib.pyplot import violinplot
-    #import matplotlib.patches as mpatches
-    
-    n_keys = len(keys)
-    
-    if categories is None:
-        categories = adata.obs[groupby].unique()
-        n_categories = len(categories)
-    else:
-        n_categories = len(categories)
-        
-    n_violins = int(len(keys)*len(categories))
-    
-    #positions of the violins
-    ps = np.linspace(0, key_spacing*(n_keys-1), num=n_keys)
-    positions = [ps]
-    tick_ps = [np.mean(ps)]
-    for i in range(1, n_categories):
-        new_ps = ps+i*groupby_spacing
-        positions.append(new_ps)
-        tick_ps.append(np.mean(new_ps))
-    positions = np.array(positions).flatten()
-    
-    #extract data for each key->categories
-    data = []
-    medians=[]
-    qs1 = []
-    qs2 = []
-    
-    for i in range(n_categories):
-        cells_i = cell_categorical_annotation_indices(adata, groupby, categories[i])
-        for j in range(n_keys):
-            to_add = adata.obs[keys[j]].to_numpy()[cells_i]
-            data.append(to_add )
-            medians.append(np.median(to_add))
-            qs1.append(np.percentile(to_add, qs[0]))
-            qs2.append(np.percentile(to_add, qs[1]))
-    data=np.array(data)
-    
-    #set dimension
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.tick_params(axis='both', which='major', labelsize=fontsize)
-    violin_plot = ax.violinplot(data, positions, widths=0.85, showmeans=False, showmedians=False, showextrema=False)
-    
-    ax.vlines(positions, qs1, qs2, color='k', linestyle='-', lw=2.5, zorder=1)
-    ax.scatter(positions, medians, marker='o', color='white', zorder=2, s=15)
-    
-    if facecolors is None:
-        facecolors = sns.color_palette("husl", n_keys)
-        
-    for i, pc in enumerate(violin_plot["bodies"], 1):
-        pc.set_facecolor(facecolors[int(i%n_keys)])
-        pc.set_edgecolor(edgecolor)
-    
-    #add x ticks and labels
-    ax.set_xticks(tick_ps)
-    ax.set_xticklabels(categories, fontsize=fontsize)
-    #add y labels
-    ax.set_ylabel(ylabel, fontsize=fontsize)
-    ax.set_title(title, fontsize=fontsize)
-    ax.legend(keys, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=fontsize)
-    plt.ylim(ylim)
-    plt.tight_layout()
-    
-    
-    if savefile:
-        plt.savefig(savefile, format='svg', dpi=300, transparent=True)
-    else:
-        plt.show()
         
         
-def comparision_violin_plot_v2(adata, keys, categories,
+def comparision_violin_plot(adata, keys, categories,
                             groupby='cell_type',
                             key_spacing = 1, groupby_spacing=2.75, figsize=(15,5),
                             edgecolor = 'black', color_by = 'cell_type',
@@ -743,12 +646,8 @@ def comparision_violin_plot_v2(adata, keys, categories,
     None
     
     '''
-    from matplotlib.pyplot import violinplot
-    
-    
     n_keys = len(keys)
     n_categories = len(categories)
-    n_violins = int(len(keys)*len(categories))
     
     #positions of the violins
     ps = np.linspace(0, key_spacing*(n_categories-1), num=n_categories)
@@ -773,7 +672,6 @@ def comparision_violin_plot_v2(adata, keys, categories,
             medians.append(np.median(to_add))
             qs1.append(np.percentile(to_add, qs[0]))
             qs2.append(np.percentile(to_add, qs[1]))
-    data=np.array(data)
     
     #set dimension
     fig, ax = plt.subplots(figsize=figsize)
@@ -811,12 +709,12 @@ def comparision_violin_plot_v2(adata, keys, categories,
     plt.ylim(ylim)
     plt.tight_layout()
     
-    
     if savefile:
         plt.savefig(savefile, format='svg', dpi=300, transparent=True)
     else:
         plt.show()
         
+
 def relative_flux_plot(
     adata, 
     k_transition_matrices, 
