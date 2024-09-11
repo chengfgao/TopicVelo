@@ -4,6 +4,7 @@ __pycache__/
 *.so
 .DS_Store
 .cache
+*.npz
 
 # OS or Editor files and folders
 .DS_Store
