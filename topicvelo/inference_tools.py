@@ -5,25 +5,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import kl_div
 import scipy.special
-from numba import jit
-from scipy.optimize import minimize
+from scipy.optimize import minimize, OptimizeWarning
 import time
-from functools import partial
+from .transcription_simulation import geometric_burst_transcription, joint_distribution_analysis, joint_distribution_analysis_exper
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
+import warnings
 
-from .transcription_simulation import geometric_burst_transcription, joint_distribution_analysis, marginal_dist_from_jd, first_moments_from_jd, joint_distribution_analysis_exper
+#to suppress warning due to initial guess out of bounds.
+#TODO: Catch this warning as an exception and initialize within bounds
+warnings.filterwarnings("ignore", category=OptimizeWarning)
 
-'''
-miscellaneous tools
-'''
-def progressBar(current, total, barLength = 20):
-    percent = float(current) * 100 / total
-    arrow   = '-' * int(percent/100 * barLength - 1) + '>'
-    spaces  = ' ' * (barLength - len(arrow))
-    print('Progress: [%s%s] %d %%' % (arrow, spaces, percent), end='\r')
-    
-'''
-One State inference tools
-'''
+#------------------------------------------------------------------------------------------------------------------------
+# One State inference tools
+#------------------------------------------------------------------------------------------------------------------------
 def os_ss_jd(alpha, beta, gamma, umax, smax):
     def os_ss_jd_us(alpha, beta, gamma, u, s):
         a = alpha/beta
@@ -44,8 +40,10 @@ def os_inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_state_v
     minKL = np.zeros(n)
     
     for i in range(n):   
-        EU_i = np.mean(adata.layers[ukey][:, i].toarray().flatten())
-        ES_i = np.mean(adata.layers[xkey][:, i].toarray().flatten())
+        gene_i_U = adata.layers[ukey][:, i].toarray().flatten()
+        gene_i_S = adata.layers[xkey][:, i].toarray().flatten()
+        EU_i = np.mean(gene_i_U)
+        ES_i = np.mean(gene_i_S)
         
         #skip infesible optimization
         if EU_i == 0 or ES_i == 0:
@@ -57,8 +55,9 @@ def os_inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_state_v
             os_alpha[i] = alpha
             os_gamma[i] = gamma
             #Compute the joint distribution
-            model_JD = os_ss_jd(alpha, 1, gamma, np.max(gene_i_U), np.max(gene_i_S))
-            minKL[i] = KL_divergence(gene_i_JD, modelJD)
+            model_jd = os_ss_jd(alpha, 1, gamma, np.max(gene_i_U), np.max(gene_i_S))
+            gene_i_jd = joint_distribution_analysis_exper(gene_i_U, gene_i_S)
+            minKL[i] = KL_divergence(gene_i_jd, model_jd)
     vals_to_save = {'alpha': os_alpha, 'gamma':os_gamma, 'KLdiv':minKL}
     np.savez(savestring, **vals_to_save)
     gamma_key = vkey+'_gamma'
@@ -69,9 +68,9 @@ def os_inference(adata,  ukey = 'unspliced', xkey='spliced', vkey = 'one_state_v
     adata.var[KL_key] = minKL
     return adata
 
-'''
-KL divergence tools
-'''
+#------------------------------------------------------------------------------------------------------------------------
+# KL divergence on joint distribution tools
+#------------------------------------------------------------------------------------------------------------------------
 def KL_divergence(obsJD, modelJD, support=1e-10):    
     '''
     Compute the KL divergence between 
@@ -126,9 +125,9 @@ def KL_divergence_sim(obsJD, kon, b, beta, gamma, burnin = 50000, num_reactions 
     JD_ij = joint_distribution_analysis(U, S, dt)
     return KL_divergence(obsJD, JD_ij)
     
-'''
-Burst Inference Tools
-'''
+#------------------------------------------------------------------------------------------------------------------------
+# Burst inference tool
+#------------------------------------------------------------------------------------------------------------------------
 def burst_inference_obj(EU, ES, EU2, JD_obs, init_type='MoM', 
                         burnin = 50000, num_reactions = 1000000, mf = 50, 
                         xt = 0.0001, ft = 0.0001):
@@ -166,68 +165,98 @@ def burst_inference_obj(EU, ES, EU2, JD_obs, init_type='MoM',
     
     x0 = [kon0, b0, gamma0]
     
-    #bounds 10^-1<b<10^4, 10^-2<beta<10^2.5, 10^-2<gamma<10^2.5,
+    #bounds=((0.003, 100) , (0.1, 1e4), (1e-4, 1e3))
     res = minimize(KL_div_obj, x0, args=(JD_obs, burnin, num_reactions), 
-                                                bounds=((0.003, 100) , (0.1, 1e4), (1e-4, 1e3)),
+                                                bounds=((0, 100) , (0, 1e4), (0, 1e3)),
                    method='nelder-mead', options={'maxfev':mf,'return_all':True, 'adaptive':True,   
                                                   'xatol':xt, 'fatol':ft})
     return res
 
-def burst_inference(adata, savestring = 'Burst_Inferences.npz', xkey = 'raw_spliced', ukey = 'raw_unspliced', report_freq = 50,
-                      vkey = 'burst_velocity', burnin=50000, num_reactions=500000, mf = 50, inference_method = 'Nelder-Mead'):
-    '''
-    inference methods:
-     1. 'MoM': Analytical estimate of parameters with the method of moments. 
-     2. 'Nelder-Mead': Use NM to find global minimum.
-    '''
+def process_gene(args):
+    i, adata, xkey, ukey, burnin, num_reactions, mf, inference_method = args
+    gene_i_S = np.round(adata.layers[xkey][:,i].toarray().flatten().astype(np.uint64))
+    gene_i_U = np.round(adata.layers[ukey][:, i].toarray().flatten().astype(np.uint64))
+    EU_i = np.mean(gene_i_U)
+    ES_i = np.mean(gene_i_S)
+    EU2_i = np.var(gene_i_U)
+    gene_i_JD = joint_distribution_analysis_exper(gene_i_U, gene_i_S)
+    if EU_i == 0 or ES_i == 0:
+        return i, None, None
+    try:
+        if inference_method == 'Nelder-Mead':
+            res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
+                                burnin=burnin, num_reactions=num_reactions, mf=mf)
+        else:
+            b0 = EU2_i/EU_i - 1
+            if b0 < 0:
+                b0 = EU2_i/EU_i
+            kon0 = EU_i/b0
+            gamma0 = EU_i/ES_i
+            res_i = [kon0, b0, gamma0]
+    except ZeroDivisionError:
+        print('Insufficient information to extract splicing dynamics for this gene')
+        return i, None, None
+    return i, res_i.x if inference_method == 'Nelder-Mead' else res_i, getattr(res_i, 'fun', None)
+
+def burst_inference(adata, savestring: str = 'Burst_Inferences.npz', xkey: str = 'raw_spliced', 
+                    ukey: str = 'raw_unspliced', vkey: str = 'burst_velocity', 
+                    burnin: int = 50000, num_reactions: int = 500000, mf: int = 50, 
+                    inference_method: str = 'Nelder-Mead', n_workers: int | None = None):
+    """
+    Perform burst inference on gene expression data.
+    
+    Parameters:
+    adata : AnnData
+        Annotated data matrix.
+    savestring : str, optional
+        Filename to save the results.
+    xkey : str, optional
+        Key for spliced data in adata.layers.
+    ukey : str, optional
+        Key for unspliced data in adata.layers.
+    vkey : str, optional
+        Key for velocity data.
+    burnin : int, optional
+        Number of burn-in reactions.
+    num_reactions : int, optional
+        Total number of reactions.
+    mf : int, optional
+        Multiplication factor.
+    inference_method : str, optional
+        Method for inference, either 'Nelder-Mead' or 'MoM'.
+    n_workers : int | None, optional
+        The number of worker processes to use. If None, it will default to the number of CPU cores.
+    """
     n = adata.n_vars
     B_InferredParameters = np.zeros((n, 3))
     B_minKL = np.zeros(n)
+    args_list = [(i, adata, xkey, ukey, burnin, num_reactions, mf, inference_method) for i in range(n)]
+
     start = time.time()
-    for i in range(n):
-        if i%report_freq == 0:
-            progressBar(i, n, barLength = 20)
-        #round to the nearest integer
-        gene_i_S = np.round(adata.layers[xkey][:,i].toarray().flatten().astype(np.uint64))
-        gene_i_U = np.round(adata.layers[ukey][:, i].toarray().flatten().astype(np.uint64))
-        EU_i = np.mean(gene_i_U)
-        ES_i = np.mean(gene_i_S)
-        EU2_i = np.var(gene_i_U)
-        gene_i_JD = joint_distribution_analysis_exper(gene_i_U , gene_i_S)
-        #skip infesible optimization
-        if EU_i == 0 or ES_i == 0:
-            continue;
-        else:
-            #catch extremely sparse genes
-            try:
-                if inference_method == 'Nelder-Mead':
-                    res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
-                                           burnin=burnin, num_reactions = num_reactions, mf=mf)
-                else:
-                    print('Using moment estimates to compute parameters')
-                    b0 = EU2_i/EU_i - 1
-                    if b0 < 0:
-                        b0 = EU2_i/EU_i
-                    kon0 = EU_i/b0
-                    gamma0 = EU_i/ES_i
-                    res_i = [kon0, b0, gamma0]
-            except ZeroDivisionError:
-                print('insufficient data for some genes')
-                continue;
-            else:
-                B_InferredParameters[i] = res_i.x
-                B_minKL[i] = res_i.fun
-    progressBar(n, n, barLength = 20)
+    #parallelization
+    if n_workers is None:
+        n_workers = os.cpu_count() or 1  # Fallback to 1 if cpu_count() returns None
+    print(f"Using {n_workers} worker processes")
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = [executor.submit(process_gene, args) for args in args_list]
+        for future in tqdm(as_completed(futures), total=n, desc="Inferring bursty velocity parameters for genes"):
+            i, params, kl = future.result()
+            if params is not None:
+                B_InferredParameters[i] = params
+                if kl is not None:
+                    B_minKL[i] = kl
     end = time.time()
-    print('Time Taken:')
-    print(end - start)
-    vals_to_save = {'Optimzal Parameters': B_InferredParameters, 'KLdiv':B_minKL}
+    print(f'Time Taken: {end - start:.2f} seconds')
+
+    vals_to_save = {'Optimal Parameters': B_InferredParameters, 'KLdiv': B_minKL}
     np.savez(savestring, **vals_to_save)
-    KLdiv_key = vkey+'_'+'KLdiv'
+    KLdiv_key = f"{vkey}_KLdiv"
     adata.var[KLdiv_key] = B_minKL
-    gamma_key = vkey+'_gamma'
+    gamma_key = f"{vkey}_gamma"
     adata.var[gamma_key] = B_InferredParameters[:, 2]
+
     return B_InferredParameters, B_minKL
+
 
 def burst_inference_gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_reactions=5000000, mf = 50):
     '''
@@ -260,9 +289,9 @@ def burst_inference_gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_
         minKL = res_i.fun
         return InferredParameters, minKL
 
-'''
-Tools for selecting topic threshold
-'''     
+#------------------------------------------------------------------------------------------------------------------------
+# tools for selecting topic thresholds
+#------------------------------------------------------------------------------------------------------------------------ 
 def get_cells_indices(adata, topics, topic_weights_th_percentile = None, above_or_below = 'above'):
     '''
     'above_or_below': pick cells above the th or below the threshold

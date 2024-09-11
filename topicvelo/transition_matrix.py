@@ -1,23 +1,23 @@
 import numpy as np
-import scipy
 import scvelo as scv
+import scanpy as scp
 from scipy.sparse import csr_matrix
 from os.path import exists
-import matplotlib.pyplot as plt
 from scipy.sparse import save_npz, load_npz
-from deeptime.markov.tools.analysis import stationary_distribution, mfpt
+from .inference_tools import burst_inference
+from sklearn.preprocessing import normalize
 
-
-from .inference_tools import burst_inference, progressBar
 '''
 Utility tools for transition matrix
 1. Cell selection
 2. Gene selection
 3. adata subset selection
 '''
-def get_cells_indices(adata, topics, 
-                      topic_weights_th_percentile = None, 
-                      above_or_below = 'above', topic_type = 'fastTopics'):
+def get_cells_indices(adata, 
+                      topics: list, 
+                      topic_weights_th_percentile: list|float=None, 
+                      above_or_below: str = 'above', 
+                      topic_type: str = 'fastTopics'):
     '''
     'above_or_below': pick cells above the th or below the threshold
     '''
@@ -38,8 +38,8 @@ def get_cells_indices(adata, topics,
                 ttc_indices.append([j for j in range(adata.n_obs) if adata.obs[k_str][j] < th_k])
             else:
                 print('Error: Please choose if the percentiles are for above or below')
-    other_cells_indices = np.array(list(set(np.arange(adata.n_obs))-set([x for xs in ttc_indices for x in xs])))
-    return ttc_indices, other_cells_indices
+    leftover_cells_indices = np.array(list(set(np.arange(adata.n_obs))-set([x for xs in ttc_indices for x in xs])))
+    return ttc_indices, leftover_cells_indices
 
 def filter_velocity_genes(adata, xkey = 'spliced', ukey = 'unspliced', vkey = 'burst',
                           KL_lb = 0, KL_ub = 100, 
@@ -86,7 +86,7 @@ def get_adata_subset(adata, topic, save_path, topic_weights_th_percentile = None
     ttg_indices = [adata.var.index.get_loc(gene_name) for gene_name in ttg]
     #subset the data and recompute neighbor list in this subset
     adata_subset = adata[ttc_indices[0], ttg_indices]
-    scv.pp.neighbors(adata_subset)
+    scp.pp.neighbors(adata_subset)
     inferredParams = np.load(save_path)
     #add the burst_velocity_gamma values
     adata_subset.var['burst_velocity_gamma'] = inferredParams['Optimzal Parameters'][:, 2]
@@ -100,9 +100,13 @@ def get_adata_subset(adata, topic, save_path, topic_weights_th_percentile = None
 '''
 Computing the transition matrix 
 '''
-def velocity_graph(adata, vkey = 'burst_velocity', 
-                   xkey = 'spliced', ukey = 'unspliced', 
-                   gene_subset = None, n_jobs = 1, round_size_normalized = True, 
+def velocity_graph(adata, 
+                   vkey = 'burst_velocity', 
+                   xkey = 'spliced', 
+                   ukey = 'unspliced', 
+                   gene_subset = None, 
+                   n_jobs = -1, 
+                   round_size_normalized = True, 
                    transition_matrix_mode='count'):
     '''
     Velocity has been inferred. The adata file contains the kinetic parameters
@@ -129,21 +133,29 @@ def velocity_graph(adata, vkey = 'burst_velocity',
         try:
             scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
         except ValueError:
-            scv.pp.neighbors(adata)
+            scp.pp.neighbors(adata)
             scv.tl.velocity_graph(adata, vkey=vkey, xkey=xkey, gene_subset = gene_subset, n_jobs = n_jobs)
 
 
-def combined_topics_transitions(adata, topics = None, 
-                                topic_weights_th_percentile = None,
-                                recompute = True,
+def combined_topics_transitions(adata, 
+                                topics: list = None, 
+                                topic_weights_th_percentile: list = None,
+                                steady_state_perc: float = 95,
+                                pca_n_comps:int = 20,
+                                velocity_type: str = 'burst',
+                                infer_xkey ='spliced',
+                                infer_ukey ='unspliced',
+                                embed_xkey = 'Ms', 
+                                embed_ukey ='Mu',
+                                topic_type = 'fastTopics', 
+                                topic_genes_key = 'top_genes', 
+                                params_key = 'topicVelo_params',
+                                transition_matrix_mode = 'count', 
+                                transition_matrix_name = None,
+                                compute_confidence = False,
+                                recompute_velocity = True,
                                 recompute_matrix = True,
-                                steady_state_perc = 95, QC_on_topic_genes = False,
-                                velocity_type = 'burst',
-                                infer_xkey='spliced', infer_ukey='unspliced',
-                                embed_xkey = 'Ms', embed_ukey ='Mu',
-                                topic_type = 'fastTopics', top_genes_key = 'top_genes', params_key = 'topicVelo_params',
-                                transition_matrix_mode = 'count', transition_matrix_name = None,
-                                subset_save_prefix = '', save = None):
+                                subset_save_prefix = ''):
     '''
     Main function for TopicVelo
     Compute topic-specific transition matrices then integrate them according to topic weights. 
@@ -165,28 +177,13 @@ def combined_topics_transitions(adata, topics = None,
     topics: the topics we want to piece up together 
         default: None, all of the topics will be used
         otherwise, must be a list. A list of one topic is permitted. 
-    
-    topic_weights_th_percentile: if a list, must be the same dimensions as topics specified (to be implemented. Take a scalar for now)
             
     '''
-    #extract the number of cells
+    #extract the number of cells and topics
     n = adata.n_obs
-    #extract the number of topics:
-    K = len(adata.uns[top_genes_key])
-    #get the top genes
-    top_genes = adata.uns[top_genes_key]
-    if QC_on_topic_genes:
-        try:
-            reasonable_top_genes = adata.uns['reasonable_top_genes']
-        except:
-            print('Need to perform quality control on topic genes')
-            return 
-    
-    #use all topics if topic is none
-    use_all_topics = False
-    if topics is None:
-        use_all_topics = True
-        topics = list(range(K))
+    K = len(adata.uns[topic_genes_key])
+    #get the topic genes
+    topic_genes = adata.uns[topic_genes_key]
         
     #add params to adata
     topicVelo_params = {}
@@ -200,14 +197,14 @@ def combined_topics_transitions(adata, topics = None,
     adata.uns[params_key] = topicVelo_params
     
     #for computing the confidence (coherence within neighborhood of velocity
-    topics_cells_velocity_confidence = np.zeros((len(topics),n))
+    if compute_confidence:
+        topics_cells_velocity_confidence = np.zeros((len(topics),n))
     
     #get topic cells
-    ttc_indices, other_cells_indices = get_cells_indices(adata, topics, 
+    ttc_indices, leftover_cells_indices = get_cells_indices(adata, topics, 
                                                          topic_weights_th_percentile = topic_weights_th_percentile,
                                                          topic_type = topic_type)
-    if len(other_cells_indices) > 0:
-        adata_other_cells = adata[other_cells_indices,:] 
+
     #get topic steady state cells
     ttc_ss_indices, transitient_cells_indices = get_cells_indices(adata, topics, 
                                                                   topic_weights_th_percentile = steady_state_perc, 
@@ -216,146 +213,106 @@ def combined_topics_transitions(adata, topics = None,
     #compute with scVelo
     scv.tl.velocity(adata, vkey='velocity')
     
-    #store the transition matrices from topics
-    TMs = []
     #compute transition matrix for each topic
     for x in range(len(topics)):
         k = topics[x]
         #get the top genes for topic k
-        ttg_k = top_genes[k]
+        ttg_k = topic_genes[k]
         ttg_indices = [adata.var.index.get_loc(gene_name) for gene_name in ttg_k]
-        #subset the data and recompute neighbor list in this subset
-        adata_subset = adata[ttc_indices[x], ttg_indices]
-        scv.pp.neighbors(adata_subset)
+
+        #subset the data and recompute neighborhood
+        adata_subset = adata[:, ttg_indices]
+        adata.obsm['X_pca'] = scp.tl.pca(adata_subset.X, n_comps=pca_n_comps)
+        scp.pp.neighbors(adata_subset, n_pcs=pca_n_comps)
+
         #subset to steady-state cells
         adata_subset_ss = adata[ttc_ss_indices[x], ttg_indices]
         topic_cell_vel_confidence =  np.zeros(n)
-        scv.tl.velocity(adata_subset, vkey='velocity')
-        
-        if QC_on_topic_genes:
-            reasonable_genes = reasonable_top_genes[k]
-        else:
-            reasonable_genes = ttg_k
-                
+
+        #compute velocity and velocity graph
         if velocity_type == 'stochastic':
             #compute velocity, velocity_graph and the transition matrix
-            scv.tl.velocity_graph(adata_subset, vkey='velocity', gene_subset=reasonable_genes)
-            scv.tl.velocity_confidence(adata_subset, vkey='velocity')
-            topic_cell_vel_confidence =  np.zeros(n)
-            topic_cell_vel_confidence[ttc_indices[x]] = adata_subset.obs['velocity_confidence']
-            topics_cells_velocity_confidence[x] = topic_cell_vel_confidence
-            TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='velocity'))
-            
+            scv.tl.velocity(adata_subset, vkey='velocity')
+            scv.tl.velocity_graph(adata_subset, vkey='velocity', gene_subset=ttg_k)
+            topic_k_transition_matrix = scv.utils.get_transition_matrix(adata_subset, vkey='velocity')            
         elif velocity_type == 'burst':
             #burst topic genes and cells. Do not recompute if no need
-            save_infer = subset_save_prefix+'T'+str(k)+'_'+infer_xkey+'_'+embed_xkey
-            save_path = save_infer + '.npz'
+            save_path = subset_save_prefix+f'T{k}'+'_'+infer_xkey+'_'+embed_xkey + '.npz'
             #recompute if the file does not exist or forced to recompute
-            if not exists(save_path) or recompute:
-                burst_inference(adata_subset_ss, savestring = save_path, report_freq = 50,
+            if not exists(save_path) or recompute_velocity:
+                burst_inference(adata_subset_ss, savestring = save_path,
                             xkey = infer_xkey, ukey = infer_ukey,
                             vkey = 'burst_velocity')
             inferredParams = np.load(save_path)
             #add the burst_velocity_gamma values
-            adata_subset.var['burst_velocity_gamma'] = inferredParams['Optimzal Parameters'][:, 2]
+            adata_subset.var['burst_velocity_gamma'] = inferredParams['Optimal Parameters'][:, 2]
             adata_subset.var['burst_velocity_KLdiv'] = inferredParams['KLdiv']
-            if QC_on_topic_genes:
-                reasonable_genes = reasonable_top_genes[k]
-            else:
-                reasonable_genes = ttg_k
+
             velocity_graph(adata_subset, 
                         transition_matrix_mode=transition_matrix_mode, 
                         xkey = embed_xkey, ukey = embed_ukey,
-                        gene_subset = reasonable_genes)  
+                        gene_subset = ttg_k)  
             
-            #add topic cell velocity coherence
-            scv.tl.velocity_confidence(adata_subset, vkey='burst_velocity')
-            topic_cell_burst_vel_confidence =  np.zeros(n)
-            topic_cell_burst_vel_confidence[ttc_indices[x]] = adata_subset.obs['burst_velocity_confidence']
-            topics_cells_velocity_confidence[x] = topic_cell_burst_vel_confidence
-                
-        
             #add topic gene kl divergence (from simulated with MLE to experimental)
             topic_gene_kl_str = 'Topic'+str(k)+'_KLdiv'
             topic_gene_kl = np.zeros(adata.n_vars)
             topic_gene_kl[ttg_indices] = inferredParams['KLdiv']
             adata.var[topic_gene_kl_str] = topic_gene_kl
             #add topic-specific transition 
-            TMs.append(scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity'))
+            topic_k_transition_matrix = scv.utils.get_transition_matrix(adata_subset, vkey='burst_velocity')
 
-    TM_save_path = subset_save_prefix + 'TransitionMatrix.npz'
-    
+        #save topic_specific transition matrix 
+        save_npz(subset_save_prefix + f'T{k}_transition_matrix.npz', topic_k_transition_matrix)
+
+        if compute_confidence:
+            confidence_vkey = 'velocity' if velocity_type=='stochastic' else 'burst_velocity'
+            scv.tl.velocity_confidence(adata_subset, vkey=confidence_vkey)
+            topic_cell_vel_confidence =  np.zeros(n)
+            topic_cell_vel_confidence[ttc_indices[x]] = adata_subset.obs[f'{confidence_vkey}_confidence']
+            topics_cells_velocity_confidence[x] = topic_cell_vel_confidence
+
+
+    TM_save_path = subset_save_prefix + 'combined_transition_matrix.npz'
     #Use topic-specific matrices and topic weights to construct integrated transition matrix
     if not exists(TM_save_path) or recompute_matrix:
         #compute the cell weights for transition matrix
         cells_weights_for_tm = np.zeros((n,len(topics)))
-        #iterate through number of topics consider
-        for x in range(len(topics)):
-            k = topics[x]
-            cells_k_indices =  ttc_indices[x]
-            cells_weights_k = adata.obs[topic_type+'_'+str(k)]
-            #iterate the cells within the topics
-            for i in range(len(cells_k_indices)):
-                #get the index (in the global adata) of the topic cell
-                cell_ki_ind = cells_k_indices[i]
-                cells_weights_for_tm[cell_ki_ind, x] = cells_weights_k[cell_ki_ind]
-        #row normalize to 1
-        for i in range(n):
-            weight_sum = np.sum(cells_weights_for_tm[i])
-            if weight_sum > 0:
-                cells_weights_for_tm[i] = cells_weights_for_tm[i]/weight_sum
+        for x, k in enumerate(topics):
+            cells_weights_k = adata.obs[topic_type+f'_{k}']
+            non_topic_k_cells_indices = list(set(np.arange(adata.n_obs))-set(ttc_indices[x]))
+            cells_weights_k[non_topic_k_cells_indices] = 0 #set non-topic k cells to 0
+            cells_weights_for_tm[:, x] = cells_weights_k
+        #normalize the topic distribution of each cell to 1
+        cell_topic_weights_sum = np.sum(cells_weights_for_tm, axis=0)
+        cells_weights_for_tm /= cell_topic_weights_sum[np.newaxis, :] # Perform in-place division
+        np.nan_to_num(cells_weights_for_tm, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         #construct the combined transition matrix
         combined_TM = csr_matrix((n,n), dtype=np.float32)
-        for x in range(len(topics)):
-            #track number of topics
-            print(x)
-            TM_k = TMs[x]
-            #iterate through cells in the topic
-            cells_k_indices =  ttc_indices[x] 
-            for i in range(len(cells_k_indices)):
-                #get the indices (in the global adata) of the topic cell
-                cell_ki_ind = cells_k_indices[i]
-                #get the cells transitioned into
-                temp_js = TM_k[i].nonzero()[1]
-                TM_ki = np.zeros(n)
-                for l in range(len(temp_js)):
-                    #get the transition probability for the i-th topic cell to l-th topic cell in topic k
-                    TM_kij = TM_k[i, temp_js[l]]
-                    TM_ki[cells_k_indices[temp_js[l]]] = TM_kij
-                #add this to the combined transition matrix weighted by cell weights
-                combined_TM[cell_ki_ind] = combined_TM[cell_ki_ind]+ TM_ki * cells_weights_for_tm[cell_ki_ind, x]  
-        #clean up the transition matrix
+        for x, k in enumerate(topics):
+            topic_k_transition_matrix = csr_matrix(load_npz(subset_save_prefix + f'T{k}_transition_matrix.npz'))
+            #scale the topic-specific transition matrix by normalized cell topic weights and add to combined transition matrix
+            combined_TM = combined_TM + topic_k_transition_matrix.multiply(cells_weights_for_tm[:, x][:, np.newaxis])
         #row normalize to 1
-        combined_TM = csr_matrix(combined_TM / combined_TM.sum(axis=1) )
-        combined_TM = np.round(combined_TM,6)
-        combined_TM = combined_TM / combined_TM.sum(axis=1)
-        combined_TM = np.squeeze(np.asarray(combined_TM))
-        #if a cell is not included, that cell has uniformly random transitions to nearest neighbors
-        for i in range(adata.n_obs):
-            if np.isnan(np.sum(combined_TM[i])):
-                neighbors = list(adata.obsp['connectivities'][i].nonzero()[1])
-                n_neigh = len(neighbors)
-                combined_TM[i] = np.zeros(adata.n_obs)
-                for j in neighbors:
-                    combined_TM[i][j] = 1/n_neigh
+        combined_TM = normalize(combined_TM, norm='l1', axis=1)
         #save transition matrix 
-        combined_TM = csr_matrix(combined_TM)
         save_npz(TM_save_path, combined_TM)
+
         #compute aggregate velocity confidence with cellweights 
-        if velocity_type == 'burst':
-            adata.obs['topicVelo_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
-                                                                                           topics_cells_velocity_confidence))
-            adata.obs['topicVelo_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
-            adata.obsm['topicVelo_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
-        elif velocity_type == 'stochastic':
-            adata.obs['scVelo+TM_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
-                                                                                           topics_cells_velocity_confidence))
-            adata.obs['scVelo+TM_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
-            adata.obsm['scVelo+TM_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
+        if compute_confidence:
+            if velocity_type == 'burst':
+                adata.obs['topicVelo_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
+                                                                                            topics_cells_velocity_confidence))
+                adata.obs['topicVelo_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
+                adata.obsm['topicVelo_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
+            elif velocity_type == 'stochastic':
+                adata.obs['scVelo+TM_velocity_confidence_by_topicWeights'] = np.diag(np.matmul(cells_weights_for_tm, 
+                                                                                            topics_cells_velocity_confidence))
+                adata.obs['scVelo+TM_velocity_confidence'] = topics_cells_velocity_confidence.max(axis=0)
+                adata.obsm['scVelo+TM_velocity_confidence_by_topics'] = topics_cells_velocity_confidence.T
     else:
-        combined_TM = load_npz(TM_save_path)
-        combined_TM = csr_matrix(combined_TM)
+        combined_TM = csr_matrix(load_npz(TM_save_path))
+        # combined_TM = csr_matrix(combined_TM)
     if transition_matrix_name:
         adata.obsp[transition_matrix_name+'_T'] = combined_TM
     elif velocity_type == 'burst':
