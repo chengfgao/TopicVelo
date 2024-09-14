@@ -143,6 +143,7 @@ def combined_topics_transitions(adata,
                                 topic_weights_th_percentile: list|float = 50,
                                 steady_state_perc: float = 95,
                                 pca_n_comps: int = 20,
+                                n_neighbors: int = 30,
                                 velocity_type: str = 'burst',
                                 infer_xkey ='spliced',
                                 infer_ukey ='unspliced',
@@ -178,6 +179,9 @@ def combined_topics_transitions(adata,
     pca_n_comps : int, optional
         Number of principal components for PCA for computing the distances in topic-specific neighborhoods. 
         Default is 20. Note this needs to less than the number of topic genes
+    n_neighbors: int, optional
+        Number of neighbors to use for computing the topic-specific neighborhood. 
+        Default is 30.
     velocity_type : str, optional
         Type of velocity to compute ('burst' or 'stochastic'). Default is 'burst'.
     infer_xkey : str, optional
@@ -266,7 +270,7 @@ def combined_topics_transitions(adata,
         #subset the data and recompute neighborhood
         adata_subset = adata[:, ttg_indices]
         adata.obsm['X_pca'] = scp.tl.pca(adata_subset.X, n_comps=pca_n_comps)
-        scp.pp.neighbors(adata_subset, n_pcs=pca_n_comps)
+        scp.pp.neighbors(adata_subset, n_pcs=pca_n_comps, n_neighbors=n_neighbors)
 
         #subset to steady-state cells
         adata_subset_ss = adata[ttc_ss_indices[x], ttg_indices]
