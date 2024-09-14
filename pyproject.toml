@@ -52,7 +52,7 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["topicvelo"]
-package-dir = {"" = "src"}
+package-dir = {"topicvelo" = "topicvelo"}
 
 
 [tool.pytest.ini_options]
