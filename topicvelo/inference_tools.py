@@ -194,14 +194,21 @@ def process_gene(args):
             gamma0 = EU_i/ES_i
             res_i = [kon0, b0, gamma0]
     except ZeroDivisionError:
-        print('Insufficient information to extract splicing dynamics for this gene')
+        print(f'Insufficient information to extract splicing dynamics for gene {adata.var_names[i]}, 
+              velocity inference is skipped. These genes will not influence downstream trajectory inference analysis.')
         return i, None, None
     return i, res_i.x if inference_method == 'Nelder-Mead' else res_i, getattr(res_i, 'fun', None)
 
-def burst_inference(adata, savestring: str = 'Burst_Inferences.npz', xkey: str = 'raw_spliced', 
-                    ukey: str = 'raw_unspliced', vkey: str = 'burst_velocity', 
-                    burnin: int = 50000, num_reactions: int = 500000, mf: int = 50, 
-                    inference_method: str = 'Nelder-Mead', n_workers: int | None = None):
+def burst_inference(adata, 
+                    savestring: str = 'Burst_Inferences.npz', 
+                    xkey: str = 'raw_spliced', 
+                    ukey: str = 'raw_unspliced', 
+                    vkey: str = 'burst_velocity', 
+                    burnin: int = 50000, 
+                    num_reactions: int = 500000,
+                    mf: int = 50, 
+                    inference_method: str = 'Nelder-Mead', 
+                    n_workers: int | None = None):
     """
     Perform burst inference on gene expression data.
     
