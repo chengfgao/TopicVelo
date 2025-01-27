@@ -484,3 +484,4 @@ def heatmap_exper_cluster_focus_jd(adata, gene_name,
     focus_str = '_'.join(str(f) for f in focuses)
     savestring = f"{gene_name}_{focus_str}_HeatMap_by_{clusters}.png"
     plt.savefig(savestring, edgecolor='black', dpi=300, bbox_inches="tight", facecolor='white')
+    plt.clf()

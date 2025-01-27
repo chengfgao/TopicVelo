@@ -95,13 +95,12 @@ def plot_topics(adata, topic, t_type = 'fastTopics',
     topic is a string. '0', '1' etc
     '''
     plt.figure(figsize=figsize)
-    topic_label = t_type + ' Topic ' + topic
+
     #order the topics by weight
     topic_access = t_type + '_'+topic
     topic_weights = adata.obs[topic_access]
     topic_weights_order = np.argsort(topic_weights)
     topic_weights = topic_weights[topic_weights_order]
-    title_txt = topic_label + ' Weights\n'
     obsm_key ='X_'+basis
     fig = plt.axes()
     #plot all cells
@@ -116,15 +115,18 @@ def plot_topics(adata, topic, t_type = 'fastTopics',
     plt.tight_layout()
     plt.show()
     plt.clf()
-    # draw a new figure and replot the colorbar there
-    fig,ax = plt.subplots(figsize=figsize)
-    cbar = plt.colorbar(top_plot, shrink=shrink)    
-    cbar.ax.tick_params(labelsize=labelsize) 
-    ax.remove()
-    plt.tight_layout()
-    #save the colorbar
-    if savefile:
-        plt.savefig(cbar_save, format='svg', dpi=300, transparent=True)
+    
+    if cbar_save is not None:
+        # draw a new figure and replot the colorbar there
+        fig,ax = plt.subplots(figsize=figsize)
+        cbar = plt.colorbar(top_plot, shrink=shrink)    
+        cbar.ax.tick_params(labelsize=labelsize) 
+        ax.remove()
+        plt.tight_layout()
+        #save the colorbar
+        if savefile:
+            plt.savefig(cbar_save, format='svg', dpi=300, transparent=True)
+    plt.clf()
 
 def plot_genes(adata, gene, layers, expr_percentile = 90, log_scale = False, basis='umap', 
                title ='', savefile = False, s = 2, cbar_save=None,
