@@ -194,8 +194,8 @@ def process_gene(args):
             gamma0 = EU_i/ES_i
             res_i = [kon0, b0, gamma0]
     except ZeroDivisionError:
-        print(f'Insufficient information to extract splicing dynamics for gene {adata.var_names[i]}, 
-              velocity inference is skipped. These genes will not influence downstream trajectory inference analysis.')
+        print(f'Insufficient information to extract splicing dynamics for gene {adata.var_names[i]}' +
+              'velocity inference is skipped. These genes will not influence downstream trajectory inference analysis.')
         return i, None, None
     return i, res_i.x if inference_method == 'Nelder-Mead' else res_i, getattr(res_i, 'fun', None)
 
