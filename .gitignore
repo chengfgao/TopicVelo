@@ -6,6 +6,7 @@ __pycache__/
 .cache
 *.npz
 *.svg
+.pypirc.txt
 
 # OS or Editor files and folders
 .DS_Store
@@ -23,3 +24,4 @@ tests/
 data/
 results/
 bash_executables/
+other_analysis/
