@@ -111,6 +111,7 @@ def plot_topics(adata, topic, t_type = 'fastTopics',
     plt.axis('off')
     if savefile:
         save_str = t_type+'_Topic'+topic+'_'+basis+'_'+'.png'
+        plt.colorbar()
         fig.figure.savefig(save_str, format='png', dpi=300, transparent=False, facecolor='white')
     plt.tight_layout()
     plt.show()
@@ -262,71 +263,144 @@ def plot_velocity(adata, gene, lb=None, ub=None, perc = [2, 98],
         plt.savefig(cbar_save, format='svg', dpi=300, transparent=True, bbox_inches='tight')
     
     
-'''
-Horizontal Bar chart for visualizing top genes within a topic
-'''
-def plot_top_topic_genes(n, topic, gene_names, top_genes_indices, log_fold_change, z, figsize=(15,10),
-                     save=False, up_or_down = 'up', xticks=[], save_type = 'svg', ticksize=20):
+def plot_top_topic_genes(n, 
+                         topic, 
+                         gene_names, 
+                         top_genes_indices, 
+                         log_fold_change, 
+                         z, 
+                         flip_z_lfc=False,
+                         figsize=(15,10),
+                         up_or_down='up', 
+                         xticks=[], 
+                         ticksize=20,
+                         cmap='plasma_r',
+                         save=False, 
+                         save_type='svg'):
     '''
-    n = number of top genes. The order is determined by selecting a lfsr threshold 
-    then sort based on log-fold change
-    and color by z score
-    Must provide the up_genes and down_genes independently 
+    Creates a horizontal bar chart for visualizing top genes within a topic.
+    
+    Parameters:
+    -----------
+    n : int
+        Number of top genes to display
+    topic : int
+        Topic/cluster number to analyze
+    gene_names : array-like
+        Array of gene names
+    top_genes_indices : array-like
+        Boolean matrix indicating top genes for each topic
+    log_fold_change : array-like
+        Matrix of log fold changes for each gene in each topic
+    z : array-like
+        Matrix of z-scores for each gene in each topic
+    flip_z_lfc : bool, optional (default=False)
+        If True, uses z-scores for x-axis and log fold change for color
+        If False, uses log fold change for x-axis and z-scores for color
+    figsize : tuple, optional (default=(15,10))
+        Figure size in inches
+    up_or_down : str, optional (default='up')
+        'up' for upregulated genes, 'down' for downregulated genes
+    xticks : list, optional (default=[])
+        Custom x-axis tick locations
+    ticksize : int, optional (default=20)
+        Font size for tick labels
+    save : bool or str, optional (default=False)
+        If str, saves figure to the specified path
+    save_type : str, optional (default='svg')
+        File format for saving the figure
+
+    Returns:
+    --------
+    ttg_names_sorted : array-like
+        Sorted array of top gene names
+    plot_values_sorted : array-like 
+        Sorted array of log fold changes or z-scores for x-axis
+    color_values_sorted : array-like
+        Sorted array of log fold changes or z-scores for color
     '''
     indices = top_genes_indices[:, topic].nonzero()[0]
     ttg_names = gene_names[indices]
     log_fold_change_ttg = np.take(log_fold_change[:,topic], indices)
     z_ttg = np.take(z[:,topic], indices)
     
-    #if only one gene
+    # If only one gene
     if len(indices) == 1:
-        plt.barh(ttg_names, log_fold_change_ttg, color = 'yellow',  height=0.2)
+        x_value = z_ttg if flip_z_lfc else log_fold_change_ttg
+        plt.barh(ttg_names, x_value, color='yellow', height=0.2)
         plt.yticks(fontsize=ticksize)
         plt.xticks(fontsize=ticksize, ticks=xticks)
         plt.tight_layout()
-        plt.savefig(save, format=save_type, transparent=False, facecolor='white', bbox_inches='tight', pad_inches=0)
+        if save:
+            plt.savefig(save, format=save_type, transparent=False, 
+                       facecolor='white', bbox_inches='tight', pad_inches=0)
         return ttg_names, log_fold_change_ttg, z_ttg 
     
-    #sorted by lfc
-    if up_or_down == 'up':
-        sorted_indices = np.argsort(-1*log_fold_change_ttg)
-    elif up_or_down == 'down':
-        sorted_indices = np.argsort(log_fold_change_ttg)
+    # Determine which values to use for sorting and plotting
+    if flip_z_lfc:
+        sort_values = z_ttg
+        plot_values = z_ttg
+        color_values = np.abs(log_fold_change_ttg)  # Use absolute LFC for color
+    else:
+        sort_values = log_fold_change_ttg
+        plot_values = log_fold_change_ttg
+        color_values = np.abs(z_ttg)  # Use absolute z-scores for color
     
+    # Sort based on selected values
+    if up_or_down == 'up':
+        sorted_indices = np.argsort(-1 * sort_values)
+    elif up_or_down == 'down':
+        sorted_indices = np.argsort(sort_values)
+    
+    # Get sorted arrays
     ttg_names_sorted = np.array(ttg_names)[sorted_indices][:n]
-    log_fold_change_ttg_sorted = np.array(log_fold_change_ttg)[sorted_indices][:n]
-    z_ttg_sorted = np.array(z_ttg)[sorted_indices][:n]
-    #square root the absolute value of z-scores
-    z_ttg_sorted = np.abs(z_ttg_sorted)
-
+    plot_values_sorted = np.array(plot_values)[sorted_indices][:n]
+    color_values_sorted = np.array(color_values)[sorted_indices][:n]
+    
     # Create figure and axes
     fig, ax = plt.subplots(figsize=figsize)
-
-    #create colors
-    sm = matplotlib.cm.ScalarMappable(cmap=plt.cm.get_cmap('plasma_r'), norm=plt.Normalize(np.min(z_ttg_sorted), np.max(z_ttg_sorted)))
+    
+    # Create colors
+    sm = matplotlib.cm.ScalarMappable(
+        cmap=plt.cm.get_cmap(cmap), 
+        norm=plt.Normalize(np.min(color_values_sorted), np.max(color_values_sorted))
+    )
     sm.set_array([])
-    colors = sm.to_rgba(z_ttg_sorted)
-
+    colors = sm.to_rgba(color_values_sorted)
+    
     # Plot the horizontal bars
-    bars = ax.barh(np.flip(ttg_names_sorted), np.flip(log_fold_change_ttg_sorted), 
-                   color=np.flip(colors, axis=0), height=0.5)
-
+    ax.barh(np.flip(ttg_names_sorted), np.flip(plot_values_sorted), 
+            color=np.flip(colors, axis=0), height=0.5)
+    
+    # Set axis labels and ticks
     ax.set_yticks(range(len(ttg_names_sorted)))
     ax.set_yticklabels(np.flip(ttg_names_sorted), fontsize=ticksize)
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(xticks, fontsize=ticksize)
-
+    if len(xticks) > 0:
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticks, fontsize=ticksize)
+    else:
+        ax.tick_params(axis='x', labelsize=ticksize)
+    
+    # Set axis labels
+    if flip_z_lfc:
+        ax.set_xlabel('Z-score', fontsize=ticksize)
+        cbar_label = '|Log Fold Change|'
+    else:
+        ax.set_xlabel('Log Fold Change', fontsize=ticksize)
+        cbar_label = '|Z-score|'
+    
     # Create colorbar
     cbar = fig.colorbar(sm, ax=ax)
     cbar.ax.tick_params(labelsize=ticksize)
-
+    cbar.ax.set_ylabel(cbar_label, fontsize=ticksize)
+    
     plt.tight_layout()
     if save:
-        plt.savefig(save, format=save_type, transparent=False, facecolor='white', bbox_inches='tight', pad_inches=0)
+        plt.savefig(save, format=save_type, transparent=False, 
+                   facecolor='white', bbox_inches='tight', pad_inches=0)
     plt.show()
-
-    return ttg_names, log_fold_change_ttg, z_ttg 
-
+    
+    return ttg_names_sorted, plot_values_sorted, color_values_sorted
 
 '''
 Plot topic-specific streamlines
