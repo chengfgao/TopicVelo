@@ -128,9 +128,13 @@ def KL_divergence_sim(obsJD, kon, b, beta, gamma, burnin = 50000, num_reactions 
 #------------------------------------------------------------------------------------------------------------------------
 # Burst inference tool
 #------------------------------------------------------------------------------------------------------------------------
-def burst_inference_obj(EU, ES, EU2, JD_obs, init_type='MoM', 
-                        burnin = 50000, num_reactions = 1000000, mf = 50, 
-                        xt = 0.0001, ft = 0.0001):
+def burst_inference_obj(EU, 
+                        ES, 
+                        EU2, 
+                        JD_obs, 
+                        init_type='MoM', 
+                        burnin = 50000, num_reactions = 1000000, 
+                        mf = 50, xt = 0.0001, ft = 0.0001):
     
     def KL_div_obj(x, *args):
         '''
@@ -173,6 +177,46 @@ def burst_inference_obj(EU, ES, EU2, JD_obs, init_type='MoM',
     return res
 
 def process_gene(args):
+    """
+    Process individual genes for burst inference analysis with retry mechanism for numerical stability.
+
+    Parameters
+    ----------
+    args : tuple
+        Contains the following elements:
+        - i : int
+            Gene index
+        - adata : AnnData
+            Annotated data matrix
+        - xkey : str
+            Key for spliced RNA layer in adata
+        - ukey : str
+            Key for unspliced RNA layer in adata
+        - burnin : int
+            Number of burn-in steps for inference
+        - num_reactions : int
+            Number of reactions to simulate
+        - mf : float
+            Multiplication factor for inference
+        - inference_method : str
+            Method for inference ('Nelder-Mead' or other)
+
+    Returns
+    -------
+    tuple
+        Contains:
+        - i : int
+            Gene index
+        - res : array-like or None
+            Inference results if successful, None if failed
+        - fun : float or None
+            Objective function value for Nelder-Mead method, None otherwise
+
+    Notes
+    -----
+    The function implements a retry mechanism (max 3 attempts) for handling ZeroDivisionError
+    that may occur due to numerical instability.
+    """
     i, adata, xkey, ukey, burnin, num_reactions, mf, inference_method = args
     gene_i_S = np.round(adata.layers[xkey][:,i].toarray().flatten().astype(np.uint64))
     gene_i_U = np.round(adata.layers[ukey][:, i].toarray().flatten().astype(np.uint64))
@@ -180,24 +224,37 @@ def process_gene(args):
     ES_i = np.mean(gene_i_S)
     EU2_i = np.var(gene_i_U)
     gene_i_JD = joint_distribution_analysis_exper(gene_i_U, gene_i_S)
+    
     if EU_i == 0 or ES_i == 0:
         return i, None, None
-    try:
-        if inference_method == 'Nelder-Mead':
-            res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
-                                burnin=burnin, num_reactions=num_reactions, mf=mf)
-        else:
-            b0 = EU2_i/EU_i - 1
-            if b0 < 0:
-                b0 = EU2_i/EU_i
-            kon0 = EU_i/b0
-            gamma0 = EU_i/ES_i
-            res_i = [kon0, b0, gamma0]
-    except ZeroDivisionError:
-        print(f'Insufficient information to extract splicing dynamics for gene {adata.var_names[i]}' +
-              'velocity inference is skipped. These genes will not influence downstream trajectory inference analysis.')
-        return i, None, None
-    return i, res_i.x if inference_method == 'Nelder-Mead' else res_i, getattr(res_i, 'fun', None)
+
+    max_retries = 10  # Number of retry attempts
+    retry_count = 0
+
+    while retry_count < max_retries:
+        try:
+            if inference_method == 'Nelder-Mead':
+                res_i = burst_inference_obj(EU_i, ES_i, EU2_i, gene_i_JD,
+                                    burnin=burnin, num_reactions=num_reactions, mf=mf)
+            else:
+                b0 = EU2_i/EU_i - 1
+                if b0 < 0:
+                    b0 = EU2_i/EU_i
+                kon0 = EU_i/b0
+                gamma0 = EU_i/ES_i
+                res_i = [kon0, b0, gamma0]
+            # If successful, return results
+            return i, res_i.x if inference_method == 'Nelder-Mead' else res_i, getattr(res_i, 'fun', None)
+            
+        except ZeroDivisionError:
+            retry_count += 1
+            if retry_count == max_retries:
+                # print('ZeroDivisionError Encountered after', max_retries, 'attempts')
+                print(f'Either Insufficient information or numerical problems encountered during splicing dynamics inference for gene {adata.var_names[i]} ' +
+                      'velocity inference is skipped. These genes will not influence downstream trajectory inference analysis.')
+                return i, None, None
+            else:
+                continue  # Try again
 
 def burst_inference(adata, 
                     savestring: str = 'Burst_Inferences.npz', 
@@ -208,9 +265,10 @@ def burst_inference(adata,
                     num_reactions: int = 500000,
                     mf: int = 50, 
                     inference_method: str = 'Nelder-Mead', 
-                    n_workers: int | None = None):
+                    n_workers: int | None = None,
+                    genes_to_compute: list[str] | None = None):
     """
-    Perform burst inference on gene expression data.
+    Perform burst inference on gene expression data, optionally for a subset of genes.
     
     Parameters:
     adata : AnnData
@@ -228,25 +286,40 @@ def burst_inference(adata,
     num_reactions : int, optional
         Total number of reactions.
     mf : int, optional
-        Multiplication factor.
+        Maximum function evaluations for Nelder-Mead optimization.
     inference_method : str, optional
         Method for inference, either 'Nelder-Mead' or 'MoM'.
     n_workers : int | None, optional
-        The number of worker processes to use. If None, it will default to the number of CPU cores.
+        The number of worker processes to use. If None, use the number of CPU cores.
+    genes_to_compute : list[str] | None, optional
+        List of gene names to compute. If None, compute for all genes.
     """
     n = adata.n_vars
-    B_InferredParameters = np.zeros((n, 3))
-    B_minKL = np.zeros(n)
-    args_list = [(i, adata, xkey, ukey, burnin, num_reactions, mf, inference_method) for i in range(n)]
+    # Initialize arrays with NaN
+    B_InferredParameters = np.full((n, 3), np.nan)
+    B_minKL = np.full(n, np.nan)
+    
+    # Convert gene names to indices
+    if genes_to_compute is not None:
+        try:
+            genes_indices = [adata.var.index.get_loc(gene) for gene in genes_to_compute]
+        except KeyError as e:
+            raise ValueError(f"Gene {e.args[0]} not found in adata.var_names") from None
+    else:
+        genes_indices = list(range(n))
+
+    args_list = [(i, adata, xkey, ukey, burnin, num_reactions, mf, inference_method) for i in genes_indices]
 
     start = time.time()
-    #parallelization
+    # Parallelization
     if n_workers is None:
-        n_workers = os.cpu_count() or 1  # Fallback to 1 if cpu_count() returns None
+        n_workers = os.cpu_count() or 1
     print(f"Using {n_workers} worker processes")
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = [executor.submit(process_gene, args) for args in args_list]
-        for future in tqdm(as_completed(futures), total=n, desc="Inferring bursty velocity parameters for genes"):
+        total_genes = len(args_list)
+        for future in tqdm(as_completed(futures), total=total_genes, 
+                         desc="Inferring bursty velocity parameters for genes"):
             i, params, kl = future.result()
             if params is not None:
                 B_InferredParameters[i] = params
@@ -259,13 +332,23 @@ def burst_inference(adata,
     np.savez(savestring, **vals_to_save)
     KLdiv_key = f"{vkey}_KLdiv"
     adata.var[KLdiv_key] = B_minKL
+    kon_key = f"{vkey}_kon"
+    adata.var[kon_key] = B_InferredParameters[:, 0]
+    b_key = f"{vkey}_b"
+    adata.var[b_key] = B_InferredParameters[:, 1]
     gamma_key = f"{vkey}_gamma"
     adata.var[gamma_key] = B_InferredParameters[:, 2]
 
     return B_InferredParameters, B_minKL
 
 
-def burst_inference_gene(adata, gene, xkey = 'raw_spliced',  burnin=500000, num_reactions=5000000, mf = 50):
+#To Deprecate
+def burst_inference_gene(adata, 
+                         gene, 
+                         xkey = 'raw_spliced',  
+                         burnin=500000, 
+                         num_reactions=5000000, 
+                         mf = 50):
     '''
     Burst inference for one gene
     '''
