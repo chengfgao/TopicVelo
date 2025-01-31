@@ -7,6 +7,7 @@ __pycache__/
 *.npz
 *.svg
 .pypirc.txt
+README_pypi.txt
 
 # OS or Editor files and folders
 .DS_Store
