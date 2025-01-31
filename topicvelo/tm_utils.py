@@ -4,11 +4,36 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
-            
-'''
-Convert cells to documents for tomotopy
-'''
+from scipy.io import mmwrite
+from scipy.sparse import csr_matrix, hstack
+
+def get_data_for_R_fastTopics(adata,
+                             gene_name_column = None,
+                             S_layer='raw_spliced',
+                             U_layer='raw_unspliced',
+                             prefix='',
+                             save_count_matrix = 'SU_Counts',
+                             save_genes_names = 'SU_Genes_names',
+                             save_cells_names = 'SU_Cells_names'):
+    #get gene naes
+    if gene_name_column is None:
+        genes_S = adata.var_names.to_list()
+    else:
+        genes_S = adata.var[gene_name_column].to_list()
+    genes_U = [g+'_U' for g in genes_S]
+    gene_names = np.hstack((genes_S, genes_U))
+    #get count matrix
+    S_U = csr_matrix(hstack([adata.layers[S_layer], adata.layers[U_layer]]), dtype=np.int32)
+    #output
+    mmwrite(f"{prefix}_{save_count_matrix}", S_U)
+    pd.DataFrame(gene_names).to_csv(f"{prefix}_{save_genes_names}.csv")
+    pd.DataFrame(adata.obs_names.to_list()).to_csv(f"{prefix}_{save_cells_names}.csv")
+    return gene_names
+   
 def cells_to_documents(X_i, gene_names):
+    '''
+    Convert cells to documents for tomotopy
+    '''
     doc = []
     for j in range(len(gene_names)):
         n = X_i[j]
@@ -16,11 +41,9 @@ def cells_to_documents(X_i, gene_names):
             doc.append(gene_names[j])
     return doc
 
-'''
-Identify discrete clusters and topic genes from fastTopics
-'''
 def fast_topics_cluster_assign(adata, L, t_type = 'fastTopics'):
     '''
+    Identify discrete clusters and topic genes from fastTopics
     topic_model: a tomotopy topic model object
     '''
     n, K = L.shape
@@ -171,9 +194,10 @@ def aggregate_clusters(adata, clusters_key, excludes, new_clusters_key, other_na
     return
 
 
-'''
-Plotting and Utilities for topic number selections
-'''
+#-------------------Topic Modeling Evaluation-------------------
+# Plotting and Utilities for topic number selections
+#---------------------------------------------------------------
+
 def CaoJuan2009(lda):
     k = lda.k
     num_vocabs = lda.num_vocabs
