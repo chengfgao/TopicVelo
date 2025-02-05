@@ -165,6 +165,12 @@ def combined_topics_transitions(adata,
     2. Construct a global transition matrix from topic transition matrix
     (See paper for more technical description)
 
+    The default parameters assume that the adata object has been preprocessed with the following:
+    scanpy.pp.pca(adata)
+    scanpy.pp.neighbors(adata, n_pcs=30, n_neighbors=30)
+    scvelo.pp.moments(adata, n_pcs=30, n_neighbors=30)
+    adata.uns['top_genes'] = top_genes
+
     Parameters
     ----------
     adata : AnnData
@@ -257,8 +263,9 @@ def combined_topics_transitions(adata,
                                                                   topic_weights_th_percentile = steady_state_perc, 
                                                                   topic_type = topic_type)
     
-    #compute with scVelo
-    scv.tl.velocity(adata, vkey='velocity')
+    # NOT SURE WHY THIS IS HERE 
+    # compute with scVelo
+    # scv.tl.velocity(adata, vkey='velocity')
     
     #compute transition matrix for each topic
     for x in range(len(topics)):
