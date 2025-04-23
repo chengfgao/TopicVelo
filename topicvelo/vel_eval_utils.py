@@ -6,6 +6,8 @@ This module contains util functions for computing evaluation scores.
 
 import numpy as np
 from deeptime.markov.tools.analysis import stationary_distribution, mfpt
+from scipy.sparse.csgraph import dijkstra
+from scipy.sparse import csr_matrix
 
 def fate_probabilities(
     adata, 
@@ -118,10 +120,8 @@ def relative_flux_correctness(
     return rel_flux, flux
 
 #helper functions for the shortest_transition_paths
-#helper functions for the shortest_transition_paths
-from scipy.sparse.csgraph import dijkstra
-from scipy.sparse import csr_matrix
-def shortest_paths(adata, k_transition_matrix):
+def shortest_paths(adata, 
+                   k_transition_matrix):
     cost_matrix = -np.log(adata.obsp[k_transition_matrix].A)
     cost_matrix [cost_matrix  == np.inf] = 0
     cost_matrix=csr_matrix(cost_matrix)
@@ -162,7 +162,7 @@ def shortest_transition_paths(adata, k_transition_matrix, starts, ends, recomput
     '''
     path_key = k_transition_matrix+'_shortest_paths'
     cost_key = k_transition_matrix+'_shortest_paths_cost'
-    if path_key not in adata.uns:
+    if path_key not in adata.uns or recompute:
         path_cost, shortest_path_predecessors = shortest_paths(adata, k_transition_matrix+'_T')
         adata.uns[path_key] = shortest_path_predecessors
         adata.obsp[cost_key] = path_cost
@@ -256,5 +256,3 @@ def permutation_test(
     test_dist = adata.obs[k_compare_on][np.where(adata.obs[k_cluster]==k_test)[0]]
     null_dist = adata.obs[k_compare_on][np.where(adata.obs[k_cluster]==k_null)[0]]
     return permutation_test_helper(test_dist, null_dist, n_resamples=n_resamples, alternative=alternative)
-
-
