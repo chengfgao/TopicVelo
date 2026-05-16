@@ -57,18 +57,20 @@ package-dir = {"topicvelo" = "topicvelo"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 xfail_strict = true
+markers = [
+    "large: tests that use larger real-data artifacts and are skipped unless explicitly enabled",
+]
 filterwarnings = [
     "ignore:invalid value encountered in:RuntimeWarning",
     "ignore:overflow encountered in:RuntimeWarning",
     "ignore::scipy.sparse.SparseEfficiencyWarning",
     "ignore:X.dtype being converted:FutureWarning",
-    "ignore::anndata.OldFormatWarning",
-    "ignore::anndata.ImplicitModificationWarning",
+    "ignore:.*OldFormatWarning.*",
+    "ignore:.*ImplicitModificationWarning.*",
 ]
 
 [project.urls]
 "Homepage"="https://github.com/chengfgao/TopicVelo"
 "Bug Tracker"="https://github.com/chengfgao/TopicVelo/issues"
-
-

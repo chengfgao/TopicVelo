@@ -4,10 +4,296 @@ Evaluation utility functions.
 This module contains util functions for computing evaluation scores.
 """
 
+import time
 import numpy as np
-from deeptime.markov.tools.analysis import stationary_distribution, mfpt
+import scipy.sparse as sparse
 from scipy.sparse.csgraph import dijkstra
 from scipy.sparse import csr_matrix
+
+
+def _report(message, verbose):
+    if verbose:
+        print(message)
+
+
+def _matrix_density(T):
+    n_rows, n_cols = T.shape
+    size = n_rows * n_cols
+    if size == 0:
+        raise ValueError("Transition matrix must not be empty.")
+    if sparse.issparse(T):
+        nnz = T.nnz
+    else:
+        nnz = np.count_nonzero(T)
+    return nnz / size, nnz
+
+
+def _renormalize_sparse_rows(T):
+    row_sums = np.asarray(T.sum(axis=1)).ravel()
+    nonzero_rows = row_sums != 0
+    inv_row_sums = np.zeros_like(row_sums, dtype=float)
+    inv_row_sums[nonzero_rows] = 1.0 / row_sums[nonzero_rows]
+    return sparse.diags(inv_row_sums).dot(T).tocsr()
+
+
+def sparsify_transition_matrix_topn(
+    T,
+    max_density,
+    *,
+    renormalize=True,
+    min_keep_per_row=1,
+):
+    """
+    Prune a transition matrix by keeping the largest entries in each row.
+
+    Args:
+        T (array-like or scipy.sparse matrix):
+            Transition matrix.
+        max_density (float):
+            Target matrix density after pruning.
+        renormalize (bool):
+            Whether to renormalize each row to sum to one after pruning.
+        min_keep_per_row (int):
+            Minimum number of entries to keep in each non-empty row.
+
+    Returns:
+        tuple:
+            ``(T_pruned, prune_info)``, where ``T_pruned`` is CSR sparse.
+    """
+    if max_density <= 0 or max_density > 1:
+        raise ValueError("max_density must be in the interval (0, 1].")
+    if min_keep_per_row < 1:
+        raise ValueError("min_keep_per_row must be at least 1.")
+
+    T_csr = T.tocsr(copy=True) if sparse.issparse(T) else csr_matrix(T)
+    T_csr.eliminate_zeros()
+    n_rows, n_cols = T_csr.shape
+    original_density, original_nnz = _matrix_density(T_csr)
+    target_nnz = int(max_density * n_rows * n_cols)
+    keep_per_row = max(min_keep_per_row, target_nnz // n_rows)
+    keep_per_row = min(keep_per_row, n_cols)
+
+    indptr = [0]
+    indices = []
+    data = []
+    removed_mass = np.zeros(n_rows, dtype=float)
+
+    for row in range(n_rows):
+        start, end = T_csr.indptr[row], T_csr.indptr[row + 1]
+        row_indices = T_csr.indices[start:end]
+        row_data = T_csr.data[start:end]
+        row_nnz = row_data.size
+
+        if row_nnz == 0:
+            indptr.append(len(indices))
+            continue
+
+        row_sum = row_data.sum()
+        if row_nnz > keep_per_row:
+            keep_positions = np.argpartition(row_data, -keep_per_row)[-keep_per_row:]
+            kept_indices = row_indices[keep_positions]
+            kept_data = row_data[keep_positions]
+        else:
+            kept_indices = row_indices
+            kept_data = row_data
+
+        kept_sum = kept_data.sum()
+        if row_sum > 0:
+            removed_mass[row] = max(row_sum - kept_sum, 0.0) / row_sum
+
+        indices.extend(kept_indices)
+        data.extend(kept_data)
+        indptr.append(len(indices))
+
+    T_pruned = csr_matrix(
+        (
+            np.asarray(data, dtype=T_csr.dtype),
+            np.asarray(indices, dtype=T_csr.indices.dtype),
+            np.asarray(indptr, dtype=T_csr.indptr.dtype),
+        ),
+        shape=T_csr.shape,
+    )
+    T_pruned.eliminate_zeros()
+    if renormalize:
+        T_pruned = _renormalize_sparse_rows(T_pruned)
+
+    pruned_density, pruned_nnz = _matrix_density(T_pruned)
+    prune_info = {
+        "original_nnz": int(original_nnz),
+        "original_density": float(original_density),
+        "pruned_nnz": int(pruned_nnz),
+        "pruned_density": float(pruned_density),
+        "target_density": float(max_density),
+        "target_nnz": int(target_nnz),
+        "keep_per_row": int(keep_per_row),
+        "mean_removed_mass": float(removed_mass.mean()),
+        "std_removed_mass": float(removed_mass.std()),
+        "max_removed_mass": float(removed_mass.max()),
+        "rows_affected": int(np.count_nonzero(removed_mass > 0)),
+    }
+    return T_pruned, prune_info
+
+
+def _validate_sparse_transition_matrix(T, row_sum_tol=1e-8):
+    if T.ndim != 2 or T.shape[0] != T.shape[1]:
+        raise ValueError("Transition matrix must be square.")
+    if not np.all(np.isfinite(T.data)):
+        raise ValueError("Transition matrix contains non-finite values.")
+    if np.any(T.data < 0):
+        raise ValueError("Transition matrix contains negative values.")
+
+    row_sums = np.asarray(T.sum(axis=1)).ravel()
+    if np.any(row_sums <= 0):
+        raise ValueError("Transition matrix contains zero-sum rows.")
+    if not np.allclose(row_sums, 1.0, atol=row_sum_tol):
+        min_row_sum = float(row_sums.min())
+        max_row_sum = float(row_sums.max())
+        raise ValueError(
+            "Transition matrix rows must sum to 1. "
+            f"Observed row sum range: [{min_row_sum:.6g}, {max_row_sum:.6g}]."
+        )
+
+
+def _stationary_distribution_power(T, tol, max_iter):
+    n = T.shape[0]
+    pi = np.full(n, 1.0 / n, dtype=float)
+    residual = np.inf
+    start_time = time.perf_counter()
+
+    for iteration in range(1, max_iter + 1):
+        pi_next = np.asarray(T.T @ pi).ravel()
+        pi_next_sum = pi_next.sum()
+        if not np.isfinite(pi_next_sum) or pi_next_sum <= 0:
+            raise RuntimeError("Power iteration produced an invalid probability vector.")
+        pi_next /= pi_next_sum
+        residual = np.abs(pi_next - pi).sum()
+        pi = pi_next
+        if residual < tol:
+            info = {
+                "solver": "sparse_power_iteration",
+                "iterations": int(iteration),
+                "residual": float(residual),
+                "tol": float(tol),
+                "max_iter": int(max_iter),
+                "elapsed_seconds": float(time.perf_counter() - start_time),
+            }
+            return pi, info
+
+    raise RuntimeError(
+        "Sparse power iteration failed to converge after "
+        f"{max_iter} iterations; final residual was {residual:.6g}."
+    )
+
+
+def fate_probabilities_sparse(
+    adata,
+    k_transition_matrix,
+    *,
+    tol=1e-10,
+    max_iter=10000,
+    max_dense_density=0.15,
+    approximate=False,
+    verbose=True,
+    return_info=False,
+):
+    """
+    Compute fate probabilities with sparse power iteration.
+
+    This avoids the sparse LU factorization used by deeptime's default
+    stationary-distribution fallback path.
+
+    Args:
+        adata (Anndata):
+            Anndata object.
+        k_transition_matrix (str):
+            Key to the transition matrix in ``adata.obsp``.
+        tol (float):
+            L1 convergence tolerance for power iteration.
+        max_iter (int):
+            Maximum power-iteration steps.
+        max_dense_density (float):
+            Maximum accepted dense-input density and pruning target.
+        approximate (bool):
+            Whether to prune high-density matrices to ``max_dense_density``.
+        verbose (bool):
+            Whether to report density and pruning statistics immediately.
+        return_info (bool):
+            Whether to return diagnostic information.
+
+    Returns:
+        pandas.Series or tuple:
+            Stored fate probabilities, or ``(series, info)`` when
+            ``return_info=True``.
+    """
+    T = adata.obsp[k_transition_matrix + '_T']
+    if T.ndim != 2 or T.shape[0] != T.shape[1]:
+        raise ValueError("Transition matrix must be square.")
+    if max_dense_density <= 0 or max_dense_density > 1:
+        raise ValueError("max_dense_density must be in the interval (0, 1].")
+
+    input_was_sparse = sparse.issparse(T)
+    density, nnz = _matrix_density(T)
+    _report(
+        "Transition matrix density: "
+        f"{density:.6f} (nnz={int(nnz)}, shape={T.shape}).",
+        verbose,
+    )
+
+    info = {
+        "input_was_sparse": bool(input_was_sparse),
+        "converted_dense_to_sparse": False,
+        "shape": tuple(int(x) for x in T.shape),
+        "initial_nnz": int(nnz),
+        "initial_density": float(density),
+        "density": float(density),
+        "max_dense_density": float(max_dense_density),
+        "approximate": bool(approximate),
+        "prune_info": None,
+    }
+
+    if input_was_sparse:
+        T_csr = T.tocsr(copy=True)
+    else:
+        if density > max_dense_density and not approximate:
+            raise ValueError(
+                "Dense transition matrix density exceeds max_dense_density "
+                f"({density:.6f} > {max_dense_density:.6f}). Provide a sparse "
+                "matrix or rerun with approximate=True to prune before solving."
+            )
+        T_csr = csr_matrix(T)
+        info["converted_dense_to_sparse"] = True
+
+    T_csr.eliminate_zeros()
+    if approximate and density > max_dense_density:
+        T_csr, prune_info = sparsify_transition_matrix_topn(
+            T_csr,
+            max_dense_density,
+            renormalize=True,
+        )
+        info["prune_info"] = prune_info
+        _report(
+            "Pruned transition matrix to density="
+            f"{prune_info['pruned_density']:.4f}; removed transition mass "
+            f"mean={100 * prune_info['mean_removed_mass']:.2f}%, "
+            f"std={100 * prune_info['std_removed_mass']:.2f}%.",
+            verbose,
+        )
+
+    final_density, final_nnz = _matrix_density(T_csr)
+    info["final_nnz"] = int(final_nnz)
+    info["final_density"] = float(final_density)
+
+    _validate_sparse_transition_matrix(T_csr)
+    pi, solver_info = _stationary_distribution_power(T_csr, tol, max_iter)
+    info.update(solver_info)
+
+    k_st = k_transition_matrix + '_stationary_distribution_sparse'
+    adata.obs[k_st] = pi
+    result = adata.obs[k_st]
+    if return_info:
+        return result, info
+    return result
+
 
 def fate_probabilities(
     adata, 
@@ -25,6 +311,8 @@ def fate_probabilities(
         stationary_distribution (np.array):
             fate probabilities  
     """
+    from deeptime.markov.tools.analysis import stationary_distribution
+
     k_st = k_transition_matrix+'_stationary_distribution'
     adata.obs[k_st] = stationary_distribution(adata.obsp[k_transition_matrix+'_T'], check_inputs=False)
     return adata.obs[k_st]
@@ -69,6 +357,8 @@ def mfpt_to_targets(
         adata.obs[obs_key] = data   
     if not k_mfpt:
         k_mfpt = k_transition_matrix+'_mfpt'
+    from deeptime.markov.tools.analysis import mfpt
+
     adata.obs[k_mfpt] = mfpt(adata.obsp[k_transition_matrix+'_T'], target_cells)
     if rescale_and_smooth:
         rescale_and_smooth(adata, k_mfpt)    

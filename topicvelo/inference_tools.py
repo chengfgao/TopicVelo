@@ -408,8 +408,12 @@ def get_cells_indices(adata, topics, topic_weights_th_percentile = None, above_o
     other_cells_indices = np.array(list(set(np.arange(adata.n_obs))-set([x for xs in ttc_indices for x in xs])))
     return ttc_indices, other_cells_indices
 
-def gene_threshold_heuristic(adata, topic, topic_gene,
-                    xkey = 'spliced', ukey='unspliced', rescale =True):
+def gene_threshold_heuristic(adata, 
+                             topic, 
+                             topic_gene,
+                             xkey = 'spliced', 
+                             ukey='unspliced', 
+                             rescale =True):
     '''
     For a given topic, compute the sum of KL-divergence of all genes at given thresholds comparing to when th=0
     
